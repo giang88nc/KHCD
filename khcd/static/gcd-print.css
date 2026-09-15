@@ -1,0 +1,94 @@
+/* gcd-print.css — NỀN TĨNH của trang in GIẤY CẦM ĐỒ A5 ngang (210x148mm) da in san.
+   Tep nay LUON nap duoc (endpoint 'static' khong bi chan dang nhap). Toa do tung khoi KHONG nam o
+   day: chung do /camdo/bien-nhan/mau-in.css sinh tu khj_bl.pmv_state['gcd_layout'].
+
+   CHOT CHAN FAIL-CLOSED (dong @media print cuoi tep): neu CSS bo cuc KHONG nap duoc thi khi IN se
+   AN to giay va HIEN dong canh bao => ra TO TRANG, mat 1 to giay, chu KHONG phun 17 khoi chong len
+   goc trai to giay in san. CSS bo cuc lat cong tac lai bang !important (xem gcd_print.BAT_TO_GIAY).
+
+   TUYET DOI KHONG them background hay print-color-adjust cho .gcd-a5: ban in that chi co CHU. */
+
+.gcd-body{margin:0;background:#EEE9E2;color:#1a1a1a;font:14px/1.45 Arial,"Segoe UI",sans-serif}
+
+/* ---- Thanh cong cu (khong bao gio in) ---- */
+.gcd-thanh{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;background:#701d2a;color:#fff}
+.gcd-thanh a,.gcd-thanh button{font:inherit;border:1px solid rgba(255,255,255,.55);background:transparent;color:#fff;
+ border-radius:6px;padding:6px 12px;cursor:pointer;text-decoration:none}
+.gcd-thanh button.gcd-chinh{background:#fff;color:#701d2a;border-color:#fff;font-weight:700}
+.gcd-thanh .gcd-day{flex:1 1 auto}
+.gcd-bao{padding:10px 14px;font-weight:700}
+.gcd-bao-do{background:#8d1c1c;color:#fff}
+.gcd-bao-vang{background:#F6E6A8;color:#5a3d00}
+.gcd-bao-xam{background:#E3DED6;color:#3a3a3a;font-weight:400}
+/* Da gui thang toi may in da luu (duong in phia may chu). Duong ROI VE trinh duyet KHONG dung mau
+   nay va cung KHONG dung mau do — no la duong chay binh thuong, chi bao mot dong XAM. */
+.gcd-bao-xanh{background:#1f6b3a;color:#fff}
+
+/* ---- Khung xem: to giay dung 210mm THAT, cuon ngang khi cua so hep (giu WYSIWYG) ---- */
+.gcd-khung{overflow-x:auto;padding:18px}
+
+/* ---- To giay ---- */
+.gcd-a5{position:relative;display:block;box-sizing:border-box;width:210mm;max-width:none;aspect-ratio:210/148;
+ margin:0 auto;background:#fff;box-shadow:0 2px 14px rgba(0,0,0,.22);
+ font-family:"Times New Roman",serif;color:#000}
+
+/* ---- Khoi chu ---- */
+.gcd-o{position:absolute;box-sizing:border-box;display:flex;flex-direction:column;justify-content:flex-end;
+ line-height:1.1;color:#000;white-space:normal;word-break:break-word;overflow-wrap:anywhere;word-break:break-word;padding-bottom:.18em;overflow:visible}
+.gcd-o span{display:block}
+[data-gcd="cuong_chi_tiet"]{justify-content:flex-start}
+[data-gcd="so_tien_so"]{font-weight:700}
+[data-gcd="trang_thai"]{font-weight:700}
+
+/* ---- Anh nen: CHI che do xem truoc. Phan tu rieng + class no-print, khong bao gio la background
+       cua .gcd-a5 (rule background tren .gcd-a5 se thang rule chong in ve do dac hieu). ---- */
+.gcd-nen{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;opacity:.85;
+ background-image:url("img/GCD.jpg");background-size:100% 100%;background-repeat:no-repeat}
+.gcd-a5 .gcd-o{z-index:1}
+
+/* ---- Che do THUOC: do bang thuoc ke de bat may in dang THU NHO (Fit to page) ---- */
+.gcd-thuoc-vien{position:absolute;left:0;top:0;width:100%;height:100%;border:.3mm solid #c00;box-sizing:border-box;z-index:2}
+.gcd-thuoc-ngang{position:absolute;left:10mm;top:12mm;width:100mm;height:6mm;box-sizing:border-box;border:.25mm solid #000;
+ background:repeating-linear-gradient(to right,#000 0 .25mm,transparent .25mm 10mm);z-index:2}
+.gcd-thuoc-doc{position:absolute;left:12mm;top:30mm;width:6mm;height:100mm;box-sizing:border-box;border:.25mm solid #000;
+ background:repeating-linear-gradient(to bottom,#000 0 .25mm,transparent .25mm 10mm);z-index:2}
+.gcd-thuoc-nhan{position:absolute;font:9pt/1 Arial,sans-serif;color:#000;z-index:2}
+.gcd-nhan-n0{left:10mm;top:19mm}
+.gcd-nhan-n1{left:105mm;top:19mm}
+.gcd-nhan-d0{left:20mm;top:30mm}
+.gcd-nhan-d1{left:20mm;top:128mm}
+.gcd-thap{position:absolute;width:10mm;height:10mm;z-index:2;
+ background:linear-gradient(#000,#000) center/10mm .25mm no-repeat,linear-gradient(#000,#000) center/.25mm 10mm no-repeat}
+.gcd-thap-1{left:15mm;top:15mm}
+.gcd-thap-2{left:185mm;top:15mm}
+.gcd-thap-3{left:15mm;top:123mm}
+.gcd-thap-4{left:185mm;top:123mm}
+
+/* ---- Dong canh bao khi CSS bo cuc khong nap duoc ---- */
+.gcd-canhbao-css{display:none;margin:0;padding:14px;background:#8d1c1c;color:#fff;font-weight:700}
+
+@media print{
+ .no-print{display:none!important}
+ .gcd-body{background:#fff}
+ .gcd-khung{overflow:visible;padding:0}
+ .gcd-a5{box-shadow:none!important;margin:0;background:#fff}
+ /* Tran chu khong duoc de Chromium de them TRANG 2 (an them mot to giay in san). Chan o cap TO
+    GIAY thoi — KHONG dat overflow:hidden o cap KHOI, cat cut ten khach la loi nang. */
+ .gcd-a5{overflow:hidden}
+ /* FAIL-CLOSED: hai dong nay chi bi lat nguoc khi /camdo/bien-nhan/mau-in.css nap duoc. */
+ .gcd-a5{display:none}
+ .gcd-canhbao-css{display:block}
+}
+
+/* ---- PHẦN A — ĐỒNG BỘ VỚI KHBL static/css/gcd_mau.css ----------------------------
+   Ba thứ PHẢI giống hệt bên KHBL, nếu không thì căn chỉnh ở trang cấu hình xong in ra
+   đây lại lệch chỗ (đo được tới ~9mm): font chữ · line-height · quy tắc riêng từng khối.
+   Selector bên KHBL là .gcd-a5__<key>, bên này markup dùng [data-gcd="<key>"].
+   ⚠ SỬA MỘT BÊN THÌ PHẢI SỬA BÊN KIA. Bài kiểm đối chiếu hai tệp này.
+   ------------------------------------------------------------------------------- */
+[data-gcd="cuong_chi_tiet"]{justify-content:flex-start;line-height:1.35}
+[data-gcd="ky_han"],[data-gcd="ngay_lap"],[data-gcd="ngay_hen"],[data-gcd="nam"]{text-align:center}
+[data-gcd="so_tien_so"]{font-weight:700}
+[data-gcd="so_tien_chu"]{font-style:italic}
+[data-gcd="nhan_vien"],[data-gcd="khach_ky"]{text-align:center;font-weight:700}
+[data-gcd="trang_thai"]{text-align:center;font-weight:700;letter-spacing:.06em;color:#B3402A}

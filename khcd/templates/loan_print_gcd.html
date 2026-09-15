@@ -1,0 +1,127 @@
+{#
+  loan_print_gcd.html — BIEN NHAN CAM DO in len GIAY A5 NGANG DA IN SAN (210x148mm).
+
+  Template DOC LAP, khong extend base.html: base keo app.css + ruby.css + khung shell, in ra phai
+  display:none tung manh. Trang nay chi co to giay + thanh cong cu (no-print).
+
+  BA CHE DO:
+    (mac dinh)  IN THAT      — chi CHU, KHONG anh nen. Nut IN co dem luot in (cd_loans.count_print).
+    ?nen=1      XEM TRUOC    — chong anh GCD.jpg lam nen de kiem khop o. KHONG co nut in.
+    ?thuoc=1    IN THUOC     — thuoc 100mm + 4 dau thap, in tren GIAY TRANG de bat may in thu nho.
+
+  pdf=True: BAN DUNG CHO EDGE CHAY AN --print-to-pdf (in thang tu may chu, xem gcd_may_in.py).
+  Bo thanh cong cu, bo JS, bo favicon; hai the <link> tro vao TEP NAM CANH TRANG trong thu muc tam
+  (Edge nap qua file:///). Phan TO GIAY khong doi mot ky tu — mot ban ve duy nhat cho ca ba duong.
+
+  NUT IN CO HAI THAN PHAN, CHON O SERVER chu KHONG doi o trinh duyet:
+    may_tt.san_sang = False (hom nay) -> id=tracked-print-button: receipt-print.js dem luot roi
+      goi window.print() NGAY. Day la DUONG CHAY THAT HANG NGAY, phai muot nhu truoc.
+    may_tt.san_sang = True            -> id=gcd-nut-in: gcd-print.js dem luot, POST sang may chu,
+      hut buoc nao thi tu roi ve window.print() kem MOT dong giai thich (dai XAM, khong phai loi do).
+
+  css_tinh_url CO LOP DO "or url_for(static…)": TEMPLATES_AUTO_RELOAD nap template moi NGAY, con
+  tep .py thi phai RESET_KHCD moi doi => co mot khoang template MOI chay cung view CU. Thieu lop do
+  do thi trong khoang do the <link> rong, gcd-print.css khong nap, chot chan fail-closed chan in va
+  quay tuong khong in duoc phieu nao. Lop nay cung do cho moi lan sua template ve sau.
+
+  ANH NEN nam o phan tu rieng .gcd-nen mang class no-print, KHONG BAO GIO la background cua .gcd-a5
+  (rule background tren .gcd-a5 co do dac hieu cao hon rule chong in, se in nen ra giay that).
+
+  Toa do tung khoi den tu /camdo/bien-nhan/mau-in.css (sinh tu khj_bl.pmv_state['gcd_layout']).
+  Danh sach khoi do gcd_print._khoi() dung theo dung gcd_layout.BLOCKS nen DOM luon du data-gcd.
+#}<!doctype html>
+<html lang="vi">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ title }} · CẦM ĐỒ Kim Hạnh 2</title>
+{% if not pdf %}<link rel="icon" href="{{ url_for('static',filename='img/favicon.png') }}">{% endif %}
+<link rel="stylesheet" href="{{ css_tinh_url or (url_for('static',filename='gcd-print.css') ~ '?v=1') }}">
+<link rel="stylesheet" href="{{ css_url }}">
+{% if not pdf %}
+<script src="{{ url_for('static',filename='receipt-print.js') }}?v=1" defer></script>
+<script src="{{ url_for('static',filename='gcd-print.js') }}?v=2" defer></script>
+{% endif %}
+</head>
+<body class="gcd-body">
+
+{% if not pdf %}
+<div class="gcd-thanh no-print">
+ {% if not nen and not thuoc %}
+   {% if may_tt and may_tt.san_sang %}
+ <button class="gcd-chinh" type="button" id="gcd-nut-in" data-url="{{ print_count_url }}"
+         data-may-url="{{ may_url }}" data-csrf="{{ session.csrf }}">IN PHIẾU</button>
+   {% else %}
+ <button class="gcd-chinh" type="button" id="tracked-print-button"
+         data-url="{{ print_count_url }}" data-csrf="{{ session.csrf }}">IN PHIẾU</button>
+   {% endif %}
+ {% endif %}
+ <span>{{ loan.sku }}</span>
+ <span class="gcd-day"></span>
+ {% if nen or thuoc %}<a href="{{ print_url }}">← Bản in thật</a>{% endif %}
+ {% if not nen %}<a href="{{ print_url }}?nen=1">Xem trước có nền</a>{% endif %}
+ {% if not thuoc %}<a href="{{ print_url }}?thuoc=1">In thước căn máy</a>{% endif %}
+ <a href="{{ detail_url }}">Bản in cũ (A4)</a>
+</div>
+{% endif %}
+
+<p class="gcd-bao gcd-bao-do no-print" id="gcd-bao-bocuc" hidden>
+ CHƯA NẠP ĐƯỢC BỐ CỤC IN — không được in lên giấy in sẵn. Tải lại trang; nếu vẫn vậy thì đăng nhập lại.
+</p>
+
+{% if nen %}
+<p class="gcd-bao gcd-bao-vang no-print">ĐANG XEM TRƯỚC CÓ NỀN — bản in thật KHÔNG có nền, chỉ in chữ.</p>
+{% endif %}
+{% if thuoc %}
+<p class="gcd-bao gcd-bao-vang no-print">CHẾ ĐỘ THƯỚC — in trên GIẤY TRẮNG A5, tuyệt đối không dùng giấy in sẵn.
+ Đo bằng thước: vạch ngang phải đúng 100 mm, vạch dọc đúng 100 mm, mỗi ô 10 mm. Ra ngắn hơn (vd 96 mm)
+ là driver đang bật “Fit to page / Vừa khổ giấy” — tắt mục đó rồi in lại, đừng chỉnh dx/dy.</p>
+{% endif %}
+{% if tran %}
+<p class="gcd-bao gcd-bao-do no-print">NỘI DUNG QUÁ DÀI Ở: {{ tran|join(' · ') }} — đã co chữ hết cỡ, soi bằng mắt trước khi in.</p>
+{% endif %}
+{% if mep %}
+<p class="gcd-bao gcd-bao-vang no-print">SÁT MÉP GIẤY: {{ mep|join(' · ') }} — nằm trong 6 mm biên cứng, nhiều máy in sẽ
+ cắt cụt hoặc thu nhỏ cả trang. Kéo khối vào trong ở Bán lẻ → Mẫu in GCD, hoặc in thử trên GIẤY TRẮNG trước.</p>
+{% endif %}
+{% if lech_tien %}
+<p class="gcd-bao gcd-bao-vang no-print">Phiếu đã phát sinh: gốc ban đầu {{ goc }} ₫ · dư gốc hiện tại {{ du }} ₫.
+ Giấy đang in theo <b>gốc ban đầu</b> (đổi ở Bán lẻ → Mẫu in GCD). Bản in cũ (A4) in theo dư gốc hiện tại.</p>
+{% endif %}
+{% if nguon != 'sql' %}
+<p class="gcd-bao gcd-bao-xam no-print">Bố cục đang dùng: <b>{{ {'nho':'bản vừa đọc (nhớ tạm)','tep':'bản chép dự phòng','mac_dinh':'mặc định trong mã'}.get(nguon,nguon) }}</b>
+ — chưa đọc được cấu hình từ Bán lẻ. Vẫn in được; kiểm khớp ô trước khi in.</p>
+{% endif %}
+{% if warning %}<p class="gcd-bao gcd-bao-xam no-print">{{ warning }}</p>{% endif %}
+{% if may_tt and not pdf %}<p class="gcd-bao gcd-bao-xam no-print">
+ {% if may_tt.san_sang %}Máy in đã đặt: <b>{{ may_tt.ten }}</b> — bấm IN là máy chủ gửi thẳng tới máy in đó.
+ {% else %}{{ may_tt.ly_do }} Bấm IN sẽ mở <b>hộp thoại in của trình duyệt</b> để chọn máy in — vẫn in bình thường.{% endif %}
+</p>{% endif %}
+{% if not pdf %}<p class="gcd-bao no-print" id="gcd-bao-may" hidden></p>{% endif %}
+
+<div class="gcd-khung">
+ <section class="gcd-a5" id="gcd-to">
+  {% if nen %}<div class="gcd-nen no-print" aria-hidden="true"></div>{% endif %}
+  {% if thuoc %}
+  <div class="gcd-thuoc-vien" aria-hidden="true"></div>
+  <div class="gcd-thuoc-ngang" aria-hidden="true"></div>
+  <div class="gcd-thuoc-doc" aria-hidden="true"></div>
+  <span class="gcd-thuoc-nhan gcd-nhan-n0">0</span>
+  <span class="gcd-thuoc-nhan gcd-nhan-n1">100 mm ngang</span>
+  <span class="gcd-thuoc-nhan gcd-nhan-d0">0</span>
+  <span class="gcd-thuoc-nhan gcd-nhan-d1">100 mm dọc</span>
+  <div class="gcd-thap gcd-thap-1" aria-hidden="true"></div>
+  <div class="gcd-thap gcd-thap-2" aria-hidden="true"></div>
+  <div class="gcd-thap gcd-thap-3" aria-hidden="true"></div>
+  <div class="gcd-thap gcd-thap-4" aria-hidden="true"></div>
+  {% endif %}
+  {% for b in khoi %}
+  <div class="gcd-o {{ b.cls }}" data-gcd="{{ b.key }}">{% for d in b.dong %}<span>{{ d }}</span>{% endfor %}</div>
+  {% endfor %}
+ </section>
+</div>
+
+<p class="gcd-canhbao-css">KHÔNG NẠP ĐƯỢC BỐ CỤC IN — trang đã tự chặn để không phun mực lên giấy in sẵn.
+ Đăng nhập lại rồi mở lại biên nhận {{ loan.sku }}.</p>
+
+</body>
+</html>
