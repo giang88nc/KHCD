@@ -1,0 +1,10 @@
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+const source=fs.readFileSync('khcd/static/pawn-entry.js','utf8');
+const start=source.indexOf('  function lockForm(on){'),end=source.indexOf('  function selectStored',start);
+const nodes=new Map();const $=id=>{if(!nodes.has(id))nodes.set(id,{id,disabled:false,dataset:{},classList:{toggle(){}}});return nodes.get(id);};
+const context={$,refreshPaymentControls(){},loaded:null,form:{classList:{toggle(){}},querySelectorAll:()=>[]},initialDisabled:new Map([[$('save-pawn'),false],[$('receipt-query'),false]]),document:{querySelectorAll:()=>[]},post(){}};
+vm.createContext(context);vm.runInContext(source.slice(start,end),context);
+context.lockForm(true);assert.equal($('save-pawn').disabled,true);assert.equal($('receipt-query').disabled,false);assert.equal($('open-receipt-history').disabled,true);assert.equal($('print-pawn').disabled,true);
+context.loaded={id:123,sku:'KH22609000001',active:true};context.lockForm(true);assert.equal($('open-receipt-history').dataset.loanId,123);assert.equal($('open-receipt-history').disabled,false);
+context.loaded=null;context.lockForm(false);assert.equal($('save-pawn').disabled,false);assert.equal($('open-receipt-history').disabled,true);
+console.log('Post-save lock regression: passed (receipt pending, loaded, new draft).');

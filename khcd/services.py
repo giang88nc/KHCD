@@ -135,10 +135,12 @@ def restore_customer(customer_id):
         event('customer_restore',customer_id=customer_id,after=c)
 
 def gold_options():
-    # Legacy "Khác" stays visible in history but cannot be selected for a new pawn.
-    return db.all("SELECT scut id,name,unit,value price FROM gold_price WHERE name <> 'Khác' AND unit IN ('chỉ','gram') AND scut IS NOT NULL ORDER BY sort,id")
+    # KHAC is a non-weight asset; keep existing gold codes unchanged.
+    return db.all("SELECT scut id,name,unit,value price FROM gold_price WHERE name <> 'Khác' AND unit IN ('chỉ','gram') AND scut IS NOT NULL ORDER BY sort,id") + [dict(id="KHAC",name="KHÁC",unit="món",price=0)]
 
 def create_pawn(data, files=None):
+    from .live_loans import enabled
+    if enabled():raise BusinessError("SQL cũ chỉ đọc; lập phiếu tại quầy SQL mới.")
     data=dict(data)
     if data.get('loaded_pawn_id'):raise BusinessError('Phiếu đang mở chỉ để xem. Chọn Cầm mới để lập phiếu khác.')
     try:
@@ -215,12 +217,35 @@ def create_pawn(data, files=None):
             bank=Decimal(extra['payment']['bank_amount']) if extra else Decimal(0)
             db.execute('''INSERT INTO pawn_log (pawn_id,status_id,date1,date2,date3,sotien,percent,days,tienlai,total,mbank)
                 VALUES (%s,1,%s,%s,%s,%s,%s,%s,0,%s,%s)''',(pid,timestamp,timestamp,due,principal,monthly,term,-(principal-bank),-bank))
-            event('create',pid,None if master.enabled() else cid,after=pawn(pid),principal=-principal,key=key)
+            event('create',pid,None if master.enabled() else cid,after=pawn(pid),principal=-principal,key=key,note=optional(data,'note'))
         return pid
     finally:
         unlock_writes()
 
+def cancellation_state(p, lock=False):
+    """Only a new, fully reconciled opening may be reversed within five minutes."""
+    result=dict(allowed=False,remaining_seconds=0,reason='Chỉ hủy phiên Cầm mới chưa có nghiệp vụ tiếp theo.')
+    if p['status']!=1:return result
+    suffix=' FOR UPDATE' if lock else ''
+    created=db.all("SELECT created_at FROM khcd_event WHERE pawn_id=%s AND kind='create'"+suffix,(p['id'],))
+    if len(created)!=1:
+        result['reason']='Phiếu nguồn cũ chưa có phiên lập được xác nhận; cần đối soát riêng.';return result
+    elapsed=(now()-created[0]['created_at']).total_seconds()
+    if not 0<=elapsed<300:
+        result['reason']='Đã hết thời hạn hủy 5 phút hoặc thời điểm lập không hợp lệ.';return result
+    logs=db.all('SELECT * FROM pawn_log WHERE pawn_id=%s ORDER BY id'+suffix,(p['id'],))
+    if len(logs)!=1 or logs[0]['status_id']!=1:return result
+    opening=logs[0];cash=Decimal(opening['total'] or 0);bank=Decimal(opening['mbank'] or 0)
+    if cash>0 or bank>0 or cash+bank!=-p['value'] or opening['sotien']!=p['value'] or any(opening[k] for k in ('tienlai','tienthem','tienbot')):
+        result['reason']='Tiền phiên mở đầu không khớp; cần đối soát, không tự hoàn tiền.';return result
+    result.update(allowed=True,remaining_seconds=max(0,int(300-elapsed)),reason='Có thể hủy sau khi thu hồi đủ tiền đã giao khách.',
+                  cash_return=str(-cash),bank_return=str(-bank))
+    return result
+
+
 def process_pawn(pid, data, action):
+    from .live_loans import enabled
+    if enabled():raise BusinessError('SQL cũ chỉ đọc. Mở biên nhận SQL mới để giao dịch.')
     if action not in ('renew','redeem','edit','cancel'):
         raise BusinessError('Thao tác không hợp lệ.')
     key=required(data,'request_key','Mã giao dịch',64)
@@ -255,14 +280,10 @@ def process_pawn(pid, data, action):
             return
         if action=='cancel':
             reason=required(data,'reason','Lý do hủy')
-            # Never erase or reverse a legacy contract with uncertain cash history.
-            if not db.one("SELECT id FROM khcd_event WHERE pawn_id=%s AND kind='create'",(pid,)):
-                raise BusinessError('Phiếu cũ chỉ được tra cứu/xử lý; không hủy vì cần đối soát lịch sử tiền trước.')
-            if db.one("SELECT id FROM pawn_log WHERE pawn_id=%s AND status_id<>1 LIMIT 1",(pid,)) or parse_date(old['date1'])!=today():
-                raise BusinessError('Chỉ hủy phiếu mới trong ngày, chưa chuộc hoặc gia hạn. Cần thu hồi đủ tiền đã giao khách.')
+            eligibility=cancellation_state(old,lock=True)
+            if not eligibility['allowed']:raise BusinessError(eligibility['reason'])
             db.execute('UPDATE pawn SET status=0 WHERE id=%s',(pid,))
-            original=db.one('SELECT total,mbank FROM pawn_log WHERE pawn_id=%s AND status_id=1 ORDER BY id LIMIT 1',(pid,))
-            bank_return=-(original['mbank'] or 0) if original else 0
+            bank_return=Decimal(eligibility['bank_return'])
             db.execute('INSERT INTO pawn_log (pawn_id,status_id,date1,date2,sotien,tienlai,total,mbank) VALUES (%s,0,%s,%s,%s,0,%s,%s)',
                 (pid,old['date2'],now(),old['value'],old['value']-bank_return,bank_return))
             event(action,pid,before=old,after=pawn(pid),principal=old['value'],note=reason,key=key)

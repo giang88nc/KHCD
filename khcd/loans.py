@@ -1,8 +1,9 @@
 """Read-only views of the new SQL and explicit live reconciliation."""
 import json
-from flask import Blueprint,render_template,request,abort,send_file,Response
+from flask import Blueprint,render_template,request,abort,send_file,Response,url_for
 from . import db,loan_conversion as C,loan_images as images
 from .domain import BusinessError
+from . import live_loans as live
 
 bp=Blueprint('loans',__name__,url_prefix='/camdo/bien-nhan')
 
@@ -35,17 +36,28 @@ def listing():
             if not r['log_count']:r['missing'].append('Thiếu lịch sử')
             if not r['employee_id']:r['missing'].append('Chưa nối nhân viên')
             r['missing'] += [i['label']+': '+i['detail'] for i in images.inventory(r) if i['state']!='ok']
+    if available and live.enabled() and rows:
+        names={r['id']:r['customer_name'] for r in rows}
+        for r in rows:r['pmv_cust_id']=r['cust_id']
+        live.master.hydrate(rows)
+        for r in rows:r['customer_name']=r.get('customer_name') or names[r['id']]
     return render_template('loans.html',title='Biên nhận · SQL mới',rows=rows,total=total,page=page,pages=max(1,(total+19)//20),q=q,state=state,labels=C.LABEL,available=available)
 
 @bp.get('/<int:loan_id>')
 def detail(loan_id):
     loan=get(loan_id)
     customer=decoded(loan['customer_snapshot'],{});customer=customer if isinstance(customer,dict) else {}
+    if live.enabled() and loan['cust_id']:
+        try:customer=live.master.get(loan['cust_id'])['customer']
+        except BusinessError:pass
     items=db.all('SELECT * FROM cd_loan_items WHERE loan_id=%s ORDER BY line_no',(loan_id,))
-    logs=db.all('SELECT l.*,s.name operation_name FROM cd_loan_logs l LEFT JOIN pawn_status s ON s.id=l.operation_id WHERE loan_id=%s ORDER BY l.legacy_log_id',(loan_id,))
-    payments=db.all('SELECT p.*,l.legacy_log_id FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.legacy_log_id,p.id',(loan_id,))
+    logs=db.all('SELECT l.*,s.name operation_name FROM cd_loan_logs l LEFT JOIN pawn_status s ON s.id=l.operation_id WHERE loan_id=%s ORDER BY l.id',(loan_id,))
+    payments=db.all('SELECT p.*,l.legacy_log_id FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.id,p.id',(loan_id,))
     for p in payments:
         p['bank']=decoded(p['bank_snapshot'],{})
+        if isinstance(p['bank'],dict):
+            if p['bank'].pop('qr_image',None):p['qr_url']=url_for('live.session_qr',log_id=p['log_id'])
+            p['bank'].pop('qr_mime',None)
         if not isinstance(p['bank'],dict):p['bank']={'Dữ liệu cần kiểm tra':str(p['bank'])}
     exceptions=C.stored_exceptions(loan)
     legacy=decoded(loan['legacy_json'],{}).get('pawn',{})
@@ -54,6 +66,7 @@ def detail(loan_id):
 
 @bp.get('/<int:loan_id>/doi-soat')
 def reconcile(loan_id):
+    if live.enabled():return live.check(loan_id)
     loan=get(loan_id);checks=[];saved=None
     def add(label,state,detail,source='',target=''):
         checks.append(dict(label=label,state=state,detail=detail,source='Chưa có' if source is None else str(source),target='Chưa có' if target is None else str(target)))

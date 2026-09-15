@@ -31,6 +31,11 @@ def items(data, golds):
         if not gold:raise BusinessError('Loại vàng không nằm trong danh mục.')
         desc=str(row.get('description','')).strip()
         if not desc or len(desc)>255:raise BusinessError('Mô tả mỗi món bắt buộc, tối đa 255 ký tự.')
+        if str(gold['id'])=='KHAC':
+            price=decimal(row.get('price') or '0','Giá hiện tại',maximum=Decimal('999999999999'))
+            if price!=money(price):raise BusinessError('Giá phải là số nguyên đồng.')
+            result.append(dict(gold='KHAC',name=gold['name'],unit='món',description=desc,gross='0',stone='0',net='0',price=str(price),subtotal=str(price)))
+            continue
         gross=decimal(row.get('gross'),'Tổng trọng lượng',Decimal('.0001'),Decimal('99999'))
         stone=decimal(row.get('stone','0'),'Trọng lượng hột',maximum=gross)
         if stone>=gross or min(gross.as_tuple().exponent,stone.as_tuple().exponent)<-4:
@@ -43,7 +48,7 @@ def items(data, golds):
 
 
 def summary(rows):
-    return ' + '.join(f"[{r['gold'].upper()}] {r['description']} {Decimal(r['net']).quantize(Decimal('.01'),rounding=ROUND_HALF_UP):.2f}{'c' if r['unit']=='chỉ' else 'g'}" for r in rows)
+    return ' + '.join((f"[KHÁC] {r['description']}" if r['gold']=='KHAC' else f"[{r['gold'].upper()}] {r['description']} {Decimal(r['net']).quantize(Decimal('.01'),rounding=ROUND_HALF_UP):.2f}{'c' if r['unit']=='chỉ' else 'g'}") for r in rows)
 
 
 def payment(data, principal):
@@ -131,9 +136,9 @@ def receipt_key(raw, host='localhost'):
         url=urlsplit(text)
         if url.netloc and url.hostname not in ('localhost','127.0.0.1','tiemvangkimhanh2',host):
             raise BusinessError('QR không thuộc hệ thống Cầm đồ.')
-        match=re.fullmatch(r'/(?:camdo/)?phieu-cam-do/(\d+)/?',url.path)
+        match=re.fullmatch(r'/(?:camdo/)?(phieu-cam-do|bien-nhan)/(\d+)/?',url.path)
         if not match or url.query or url.fragment:raise BusinessError('QR không chứa đường dẫn biên nhận hợp lệ.')
-        return 'id',int(match.group(1))
+        return ('new_id' if match.group(1)=='bien-nhan' else 'id'),int(match.group(2))
     return 'sku',text
 
 

@@ -2,6 +2,8 @@
 (() => {
  'use strict';
  const form=document.getElementById('kh-form');if(!form)return;
+ const group=document.body.dataset.photoGroup;
+ form.querySelectorAll('[data-photo-input]').forEach(i=>{if((group==='products'&&i.name==='anh_qr')||(group==='qr'&&i.name!=='anh_qr'))i.closest('[data-photo]').remove();});
  const inputs=Array.from(form.querySelectorAll('[data-photo-input]'));
  let customer='',sources={},locked=false;
  const send=(type,detail={})=>parent.postMessage({source:'khcd-pawn-photos',type,detail},location.origin);
@@ -16,13 +18,13 @@
   controls(input);send('file',{name:input.name,file,user:true,parsed:!!e.detail?.fromScan});input.closest('[data-photo]').querySelector('[data-cat-tt]').textContent='';
  }
  document.addEventListener('change',picked);document.addEventListener('khbl:anh-dat',picked);
- inputs.forEach(input=>{const button=document.createElement('button');button.type='button';button.className='photo-remove khbl-btn khbl-btn--outline';button.textContent='×';button.title='Bỏ ảnh vừa chọn';button.setAttribute('aria-label','Bỏ ảnh vừa chọn');button.addEventListener('click',()=>{restore(input);send('file',{name:input.name,file:null,user:true});});input.closest('[data-photo]').querySelector('.kh-anh__actions').append(button);controls(input);});
+ inputs.forEach(input=>{const box=input.closest('[data-photo]').querySelector('[data-xem]');box.tabIndex=0;box.setAttribute('role','button');box.setAttribute('aria-label','Xem '+input.closest('[data-photo]').dataset.label);const view=e=>{if(!box.querySelector('img'))return;e.preventDefault();e.stopPropagation();send('view',{name:input.name});};box.addEventListener('click',view);box.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' ')view(e);});const button=document.createElement('button');button.type='button';button.className='photo-remove khbl-btn khbl-btn--outline';button.textContent='×';button.title='Bỏ ảnh vừa chọn';button.setAttribute('aria-label','Bỏ ảnh vừa chọn');button.addEventListener('click',()=>{restore(input);send('file',{name:input.name,file:null,user:true});});input.closest('[data-photo]').querySelector('.kh-anh__actions').append(button);controls(input);});
  window.closeKhblModal=()=>{window.__khblStopCamera?.();window.khblKhCatDong?.();};
  const camera=document.getElementById('kh-camera'),crop=document.getElementById('kh-cat-root');
  function expanded(){const open=!!camera?.open||!!crop?.innerHTML.trim();document.body.classList.toggle('photo-expanded',open);send('expand',{open});}
  if(camera)new MutationObserver(expanded).observe(camera,{attributes:true,attributeFilter:['open']});if(crop)new MutationObserver(expanded).observe(crop,{childList:true});
  window.addEventListener('message',e=>{if(e.origin!==location.origin||e.source!==parent||e.data?.source!=='khcd-pawn-parent')return;const {type,detail={}}=e.data;
-  if(type==='customer'&&!locked){const changed=customer!==detail.id;customer=detail.id||'';sources=detail.photos||{};form.querySelector('[name=CustID]').value=customer;inputs.filter(i=>['anh_truoc','anh_sau','anh_qr'].includes(i.name)).forEach(i=>{if(changed||!customer||(!i.files?.length&&!i._capturedFile))restore(i);});}
+  if(type==='customer'&&!locked){const changed=customer!==detail.id;customer=detail.id||'';sources={...(detail.photos||{})};delete sources.anh_qr;form.querySelector('[name=CustID]').value=customer;inputs.filter(i=>['anh_truoc','anh_sau','anh_qr'].includes(i.name)).forEach(i=>{if(changed||!customer||(!i.files?.length&&!i._capturedFile))restore(i);});}
   if(type==='lock'){locked=!!detail.locked;if(locked){customer=detail.id||'';sources=detail.photos||{};inputs.forEach(restore);window.closeKhblModal();}inputs.forEach(controls);}
   if(type==='reset'){locked=false;customer='';sources={};form.querySelector('[name=CustID]').value='';inputs.forEach(restore);window.closeKhblModal();}
   if(type==='qr'&&!locked){const input=inputs.find(i=>i.name==='anh_qr');if(input&&detail.file){input._capturedFile=detail.file;try{const dt=new DataTransfer();dt.items.add(detail.file);input.files=dt.files;}catch(_){}input.dispatchEvent(new CustomEvent('khbl:anh-dat',{bubbles:true,detail:{file:detail.file,fromScan:true}}));}}

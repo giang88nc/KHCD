@@ -12,11 +12,13 @@ from .domain import BusinessError, money, today, STATUSES, EVENTS
 def create_app(test_config=None):
     load_dotenv(os.environ.get('KHCD_ENV_FILE', '.env'), override=False)
     app = Flask(__name__)
+    # Reload changed templates even in Waitress; F5 must not keep an old form.
+    app.config['TEMPLATES_AUTO_RELOAD']=True
     app.config.update({k: os.getenv(k, default) for k, default in {
         'DB_HOST':'127.0.0.1','DB_PORT':'3308','DB_NAME':'khj_cd',
         'DB_USER':'khj_admin','DB_PASSWORD':'','SECRET_KEY':'',
         'AUTH_SOURCE_DB':'khj_bl','RETAIL_URL':'https://tiemvangkimhanh2:8100',
-        'CUSTOMER_MASTER':'kk','CUSTOMER_BRIDGE_KEY_FILE':'instance/customer-bridge.key',
+        'CD_LIVE':'1','CUSTOMER_MASTER':'kk','CUSTOMER_BRIDGE_KEY_FILE':'instance/customer-bridge.key',
         'LEGACY_PAWN_IMAGE_ROOT':'D:/PYTHON/KHCD/media/pawn',
         'PMV_MSSQL_HOST':'','PMV_MSSQL_DB':'','PMV_MSSQL_USER':'','PMV_MSSQL_PASSWORD':'',
         'PMV_MSSQL_ODBC_DRIVER':'SQL Server Native Client 10.0',
@@ -40,6 +42,11 @@ def create_app(test_config=None):
     app.register_blueprint(conversion_bp)
     from .loans import bp as loans_bp
     app.register_blueprint(loans_bp)
+    from .live_loans import bp as live_bp
+    app.register_blueprint(live_bp)
+    # In bien nhan len GIAY CAM DO A5 ngang da in san; bo cuc doc tu khj_bl.pmv_state['gcd_layout'].
+    from .gcd_print import bp as gcd_bp
+    app.register_blueprint(gcd_bp)
     app.teardown_appcontext(db.close)
 
     @app.before_request
@@ -49,6 +56,7 @@ def create_app(test_config=None):
             request.max_content_length = 48 * 1024 * 1024
         if request.endpoint == 'web.pawn_new':
             request.max_content_length = 80 * 1024 * 1024
+        if request.endpoint == 'live.commit':request.max_content_length=16*1024*1024
         if request.endpoint == 'web.desk_qr':request.max_content_length = 16 * 1024 * 1024
         g.auth_user=None
         if request.endpoint not in ('static','web.health'):
@@ -72,7 +80,7 @@ def create_app(test_config=None):
         response.headers['X-Content-Type-Options']='nosniff'
         response.headers['X-Frame-Options']='DENY'
         response.headers['Referrer-Policy']='same-origin'
-        response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
+        response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self'; script-src 'self'; img-src 'self' data: blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'self'"
         if request.endpoint=='web.pawn_new':
             response.headers['Content-Security-Policy']+="; media-src 'self' blob:"
         if request.endpoint in ('customer_popup.frame', 'customer_popup.api','customer_popup.photos'):
@@ -89,7 +97,7 @@ def create_app(test_config=None):
         user=getattr(g,'auth_user',None)
         display_name=(' '.join([user['first_name'],user['last_name']]).strip() or user['username']) if user else ''
         return dict(today=today(), statuses=STATUSES, event_names=EVENTS,
-            readonly=app.config['DB_READ_ONLY'], auth_user=user,display_name=display_name,
+            cd_live=str(app.config.get('CD_LIVE','0'))=='1',readonly=app.config['DB_READ_ONLY'], auth_user=user,display_name=display_name,
             retail_url=app.config['RETAIL_URL'],
             role_label='Quản trị viên' if user and user['is_superuser'] else 'Nhân viên')
 
@@ -100,11 +108,13 @@ def create_app(test_config=None):
 
     @app.errorhandler(BusinessError)
     def invalid(error):
+        if request.accept_mimetypes.best=='application/json':return {'error':str(error)},400
         return render_template('error.html', message=str(error)), 400
 
     @app.errorhandler(pymysql.MySQLError)
     def db_error(error):
         app.logger.error('Database operation failed: code=%s', error.args[0])
+        if request.accept_mimetypes.best=='application/json':return {'error':'Chưa xác định kết quả MySQL. Giữ mã yêu cầu và kiểm tra lịch sử trước khi tiếp tục.','uncertain':True},503
         return render_template('error.html', message='Chưa thể hoàn tất thao tác với MySQL. Kiểm tra cấu hình kết nối; không gửi lại giao dịch trước khi kiểm tra lịch sử.'), 503
 
     @app.errorhandler(404)

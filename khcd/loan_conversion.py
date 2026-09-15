@@ -167,12 +167,12 @@ def project(src, customer):
 def target(pid):
     loan=db.one('SELECT * FROM cd_loans WHERE legacy_pawn_id=%s',(pid,))
     if not loan:return None
-    fields=('id','source_hash','target_hash','migration_state','converted_at','converted_by','converted_username')
+    fields=('id','source_hash','target_hash','migration_state','converted_at','converted_by','converted_username','version','count_print')
     data={k:v for k,v in loan.items() if k not in fields}
     result=dict(loan=data,items=[],logs=[],payments=[])
     for name,table,order in [('items','cd_loan_items','line_no'),('logs','cd_loan_logs','legacy_log_id')]:
         rows=db.all('SELECT * FROM '+table+' WHERE loan_id=%s ORDER BY '+order,(loan['id'],))
-        result[name]=[{k:v for k,v in r.items() if k not in ('id','loan_id')} for r in rows]
+        result[name]=[{k:v for k,v in r.items() if k not in ('id','loan_id','request_key','note','actor_id','employee_id','reverses_log_id')} for r in rows]
     result['payments']=db.all('SELECT l.legacy_log_id,p.channel,p.direction,p.amount,p.bank_snapshot FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.legacy_log_id,p.channel',(loan['id'],))
     return loan,result
 
@@ -285,6 +285,8 @@ def convert(pid,review_hash,active_only=False,allow_exceptions=False):
         for pay in plan['payments']:insert('cd_payments',dict({k:v for k,v in pay.items() if k!='legacy_log_id'},log_id=ids[pay['legacy_log_id']]))
         saved=target(pid)
         if not saved or plan_hash(saved[1])!=plan_hash(plan):raise BusinessError('Đọc kiểm dữ liệu đích không khớp. Toàn bộ lần chuyển đã rollback.')
+        from .live_loans import enabled
+        if enabled():db.execute("UPDATE cd_loans SET migration_state='LIVE' WHERE id=%s",(loan_id,))
         from .services import event
-        event('loan_convert',pid,after={'cd_loan_id':loan_id,'source_hash':plan['source_hash'],'summary':plan['summary'],'exception_policy':plan['exception_policy']},note='Chuyển dữ liệu STAGED; nguồn vận hành vẫn là pawn.',key='loan_convert:'+str(pid))
+        event('loan_convert',pid,after={'cd_loan_id':loan_id,'source_hash':plan['source_hash'],'summary':plan['summary'],'exception_policy':plan['exception_policy']},note='Chuyển và đối soát dữ liệu vào cd_loans.',key='loan_convert:'+str(pid))
         return loan_id

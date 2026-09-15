@@ -160,3 +160,10 @@ def test_qr_requires_csrf_and_bank_list_is_read_only(desk_app,client,monkeypatch
     assert client.post('/camdo/lap-phieu/doc-qr',data={'csrf_token':'token','kind':'receipt','text':'CD_TEST'}).json['text']=='CD_TEST'
     assert client.get('/camdo/lap-phieu/tai-khoan-thu').json['default_id']==2
     assert calls==['pawn_qr','pawn_banks']
+
+def test_other_asset_ignores_weights_and_uses_whole_item_price():
+    row=dict(gold='KHAC',description='Đồng hồ',gross='invalid',stone='-100',price='10000000')
+    result=D.items(data_items([row]),[dict(id='KHAC',name='KHÁC',unit='món')])
+    assert result[0]['net']=='0'
+    assert result[0]['subtotal']=='10000000'
+    assert D.summary(result)=='[KHÁC] Đồng hồ'

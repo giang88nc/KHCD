@@ -1,0 +1,157 @@
+"""Offline VietQR, reused from KHBL apps/pos/vietqr.py; exact session amounts (no rounding)."""
+BANKS = [
+    ("VCB", "970436", "Vietcombank"),
+    ("TCB", "970407", "Techcombank"),
+    ("MB", "970422", "MB Bank"),
+    ("BIDV", "970418", "BIDV"),
+    ("ICB", "970415", "VietinBank"),
+    ("VBA", "970405", "Agribank"),
+    ("ACB", "970416", "ACB"),
+    ("VPB", "970432", "VPBank"),
+    ("STB", "970403", "Sacombank"),
+    ("TPB", "970423", "TPBank"),
+    ("HDB", "970437", "HDBank"),
+    ("VIB", "970441", "VIB"),
+    ("SHB", "970443", "SHB"),
+    ("EIB", "970431", "Eximbank"),
+    ("MSB", "970426", "MSB"),
+    ("OCB", "970448", "OCB"),
+    ("SEAB", "970440", "SeABank"),
+    ("NAB", "970428", "Nam A Bank"),
+    ("PVCB", "970412", "PVcomBank"),
+    ("SCB", "970429", "SCB"),
+    ("LPB", "970449", "LPBank"),
+    ("ABB", "970425", "ABBANK"),
+    ("BAB", "970409", "Bac A Bank"),
+    ("VAB", "970427", "VietABank"),
+    ("BVB", "970454", "BVBank"),
+    ("NCB", "970419", "NCB"),
+    ("KLB", "970452", "KienLongBank"),
+    ("SGB", "970400", "SaigonBank"),
+    ("VIETBANK", "970433", "VietBank"),
+    ("PGB", "970430", "PGBank"),
+]
+
+_BIN = {code: bin_ for code, bin_, _ in BANKS}
+
+_TEN = {code: ten for code, _, ten in BANKS}
+
+def bank_bin(code):
+    """Napas BIN 6 số từ mã NH ('ACB'→970416). Nếu đã là BIN 6 số thì dùng thẳng."""
+    c = (code or "").strip().upper()
+    if c.isdigit() and len(c) == 6:
+        return c
+    return _BIN.get(c, "")
+
+def bank_ten(code):
+    return _TEN.get((code or "").strip().upper(), code or "")
+
+def _tlv(idx, val):
+    """1 trường EMV: ID(2) + độ dài(2, đệm 0) + giá trị."""
+    val = str(val)
+    return f"{idx}{len(val):02d}{val}"
+
+def _crc16(s):
+    """CRC-16/CCITT-FALSE (poly 0x1021, init 0xFFFF) — chuẩn checksum EMVCo QR."""
+    crc = 0xFFFF
+    for ch in s.encode("utf-8"):
+        crc ^= ch << 8
+        for _ in range(8):
+            crc = ((crc << 1) ^ 0x1021) & 0xFFFF if crc & 0x8000 else (crc << 1) & 0xFFFF
+    return f"{crc:04X}"
+
+def bank_code_tu_bin(bin_):
+    """BIN napas → mã NH ('970416'→'ACB'); không có trong danh mục → trả lại BIN."""
+    for code, b, _ in BANKS:
+        if b == str(bin_ or "").strip():
+            return code
+    return str(bin_ or "").strip()
+
+def _tach_tlv(s):
+    """Chuỗi EMV TLV → list (id, giá trị). Sai độ dài → dừng."""
+    out, i = [], 0
+    while i + 4 <= len(s):
+        idx, ln = s[i:i + 2], s[i + 2:i + 4]
+        if not ln.isdigit():
+            break
+        n = int(ln)
+        out.append((idx, s[i + 4:i + 4 + n]))
+        i += 4 + n
+    return out
+
+def parse(chuoi):
+    """Phân tích chuỗi VietQR (EMVCo). Trả dict {bin, bank_code, bank_ten, account, amount, info, hop_le, loi}.
+    Chỉ nhận QR CHUYỂN KHOẢN chuẩn NAPAS: tag 38 chứa GUID A000000727 (QRIBFTTA) — QR khác → hop_le=False."""
+    s = str(chuoi or "").strip()
+    kq = {"bin": "", "bank_code": "", "bank_ten": "", "account": "", "amount": 0, "info": "", "ten": "",
+          "hop_le": False, "loi": ""}
+    if not s.startswith("000201"):
+        kq["loi"] = "Không phải mã QR thanh toán EMVCo"
+        return kq
+    if len(s) >= 4 and _crc16(s[:-4]) != s[-4:].upper():
+        kq["loi"] = "Mã QR sai checksum (ảnh mờ / thiếu góc) — chụp lại rõ hơn"
+        return kq
+    for idx, val in _tach_tlv(s):
+        if idx == "38":
+            con = dict(_tach_tlv(val))
+            if con.get("00", "").upper() != "A000000727":
+                kq["loi"] = "QR không thuộc hệ VietQR/NAPAS (không phải chuyển khoản ngân hàng VN)"
+                return kq
+            ben = dict(_tach_tlv(con.get("01", "")))
+            kq["bin"], kq["account"] = ben.get("00", ""), ben.get("01", "")
+        elif idx == "54":
+            try:
+                kq["amount"] = int(float(val))
+            except ValueError:
+                pass
+        elif idx == "59":
+            # EMVCo tag 59 = tên người thụ hưởng. App ngân hàng sinh QR cá nhân thường ghi sẵn tên chủ tài khoản
+            # (không dấu, tối đa 25 ký tự); QR tĩnh in ra cũng vậy. Có QR bỏ trống tag này nên đừng coi là bắt buộc.
+            kq["ten"] = " ".join(str(val or "").split())[:100]
+        elif idx == "62":
+            kq["info"] = dict(_tach_tlv(val)).get("08", "")
+    if not kq["bin"] or not kq["account"]:
+        kq["loi"] = "QR thiếu BIN ngân hàng / số tài khoản"
+        return kq
+    kq["bank_code"] = bank_code_tu_bin(kq["bin"])
+    kq["bank_ten"] = bank_ten(kq["bank_code"]) if kq["bank_code"] != kq["bin"] else f"BIN {kq['bin']}"
+    kq["hop_le"] = True
+    return kq
+
+def khong_dau(s):
+    """Tên cho tag 59: bỏ dấu tiếng Việt, chỉ giữ chữ/số/khoảng trắng — QR chuẩn NAPAS dùng ASCII."""
+    import unicodedata
+    s = unicodedata.normalize("NFD", str(s or "")).replace("đ", "d").replace("Đ", "D")
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    return " ".join("".join(c if c.isalnum() or c == " " else " " for c in s).split()).upper()
+
+def payload(bank_code, account_no, amount=0, info="", ten=""):
+    """Chuỗi VietQR chuyển khoản TỚI TÀI KHOẢN. amount ≤ 0 → QR không kèm số tiền
+    (người chuyển tự nhập). ten = tên chủ tài khoản, ghi vào tag 59 để app ngân hàng hiện sẵn khi quét.
+    Ném ValueError nếu thiếu BIN/số tài khoản."""
+    bin_ = bank_bin(bank_code)
+    account_no = "".join(ch for ch in str(account_no or "") if ch.isalnum())
+    if not bin_:
+        raise ValueError("Chưa chọn ngân hàng hợp lệ")
+    if not account_no:
+        raise ValueError("Chưa nhập số tài khoản")
+
+    ben = _tlv("00", bin_) + _tlv("01", account_no)          # tổ chức thụ hưởng
+    mai = _tlv("00", "A000000727") + _tlv("01", ben) + _tlv("02", "QRIBFTTA")
+    amt = int(amount) if amount > 0 else 0
+
+    body = _tlv("00", "01")
+    body += _tlv("01", "12" if amt else "11")                 # có tiền = one-time
+    body += _tlv("38", mai)
+    body += _tlv("53", "704")                                 # VND
+    if amt:
+        body += _tlv("54", str(amt))
+    body += _tlv("58", "VN")
+    ten = khong_dau(ten)[:25]
+    if ten:
+        body += _tlv("59", ten)
+    info = "".join(c for c in str(info or "") if c.isalnum() or c in " -").strip()[:25]   # 08/09: giữ '-' cho mã phiếu 26-09-08-000167
+    if info:
+        body += _tlv("62", _tlv("08", info))
+    body += "6304"                                            # ID+len của CRC, rồi tính CRC
+    return body + _crc16(body)

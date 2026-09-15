@@ -47,10 +47,14 @@ def inventory(loan):
         found=db.one('SELECT OCTET_LENGTH(data) size,SHA2(data,256) sha256 FROM khcd_pawn_photo WHERE pawn_id=%s AND kind=%s',(loan['legacy_pawn_id'],kind))
         valid=bool(found and found['sha256']==ref.get('sha256') and found['size']==ref.get('size'))
         rows.append(dict(slot=kind,label=LABELS[kind],filename=kind,available=valid,state='ok' if valid else 'error',detail='Tái sử dụng ảnh MySQL, checksum khớp bản chuyển.' if valid else 'Ảnh thiếu hoặc đã thay đổi so với lúc chuyển.'))
+    for slot,ref in (docs.get('native') or {}).items():
+        valid=bool(native_blob(loan,slot))
+        rows.append(dict(slot=slot,label=LABELS.get(slot,slot),filename=ref.get('file',''),available=valid,state='ok' if valid else 'error',detail='Ảnh hồ sơ SQL mới; kiểm tra SHA256.' if valid else 'Ảnh thiếu hoặc sai checksum.'))
     if not rows:rows.append(dict(slot='',label='Hồ sơ ảnh',filename='',available=False,state='warning',detail='Bản chuyển chưa có tham chiếu ảnh. Không đồng nghĩa đã đủ ảnh hồ sơ.'))
     return rows
 
 def blob(loan,slot):
+    if slot in (documents(loan).get("native") or {}):return native_blob(loan,slot)
     refs=documents(loan).get('pawn_photo_refs') or []
     if not isinstance(refs,list):return None
     ref=next((r for r in refs if isinstance(r,dict) and r.get('kind')==slot),None)
@@ -58,3 +62,17 @@ def blob(loan,slot):
     row=db.one('SELECT data FROM khcd_pawn_photo WHERE pawn_id=%s AND kind=%s',(loan['legacy_pawn_id'],slot))
     if not row or hashlib.sha256(row['data']).hexdigest()!=ref.get('sha256'):return None
     return row['data']
+
+
+def native_blob(loan,slot):
+    ref=(documents(loan).get('native') or {}).get(slot)
+    if not isinstance(ref,dict):return None
+    name=ref.get('file','')
+    if not name or any(c in name for c in '/\\:\x00'):return None
+    root=Path(current_app.config.get('LOAN_MEDIA_ROOT',str(Path(current_app.root_path).parent/'media'/'loans'))).resolve();path=(root/name).resolve()
+    if not path.is_relative_to(root):return None
+    try:
+        if path.stat().st_size>15*1024*1024:return None
+        data=path.read_bytes()
+        return data if len(data)==ref.get('size') and hashlib.sha256(data).hexdigest()==ref.get('sha256') else None
+    except OSError:return None

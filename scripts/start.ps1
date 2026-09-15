@@ -1,8 +1,8 @@
-param([switch]$Direct)
+param([switch]$Direct,[switch]$RestartBackend)
 $ErrorActionPreference = 'Stop'
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $taskMarker = Join-Path $projectRoot 'instance\windows-host.enabled'
-if (!$Direct -and (Test-Path -LiteralPath $taskMarker)) {
+if (!$Direct -and !$RestartBackend -and (Test-Path -LiteralPath $taskMarker)) {
     Remove-Item -LiteralPath (Join-Path $projectRoot 'instance\host.stop') -ErrorAction SilentlyContinue
     & schtasks.exe /Run /TN 'KHCD Web Host' | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Cannot start KHCD Web Host in Windows Task Scheduler.' }
@@ -35,6 +35,14 @@ $backend = @(Get-Listener 8201)
 $front = @(Get-Listener 8200)
 if ($backend.Count -gt 0 -and !(Test-OwnedListener $backend 'backend')) { throw 'Port 8201 belongs to another application; no process was changed.' }
 if ($front.Count -gt 0 -and !(Test-OwnedListener $front 'caddy')) { throw 'Port 8200 belongs to another application/old HTTP server. Stop KHCD first.' }
+if ($RestartBackend) {
+    foreach ($backendProcessId in ($backend.OwningProcess | Select-Object -Unique)) {
+        Stop-Process -Id $backendProcessId -Force -ErrorAction Stop
+        Wait-Process -Id $backendProcessId -Timeout 10 -ErrorAction SilentlyContinue
+    }
+    $backend = @(Get-Listener 8201)
+    if ($backend.Count -gt 0 -and !(Test-OwnedListener $backend 'backend')) { throw 'Port 8201 changed ownership during restart.' }
+}
 if (!(Test-Path -LiteralPath $caddyPath)) { throw 'Missing ops/caddy/caddy.exe.' }
 if (!(Test-Path -LiteralPath (Join-Path $projectRoot 'instance\caddy-data\pki\authorities\local\root.key'))) { throw 'Shared LAN CA is not configured.' }
 Remove-Item Env:\KHCD_ENV_FILE -ErrorAction SilentlyContinue

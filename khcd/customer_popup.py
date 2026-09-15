@@ -16,8 +16,8 @@ def unpack(result):
 def photos():
     if not master.enabled():abort(404)
     db.require_write()
-    result=master.call('popup',path='/banle/khach-hang/them/',method='GET',query='pawn_photos=1&group='+({'front':'front','back':'back','products':'products'}.get(request.args.get('group'),'all')))
-    return render_template('customer_popup_frame.html',popup_html=unpack(result).decode('utf-8'),pawn_photos=True),result['status']
+    result=master.call('popup',path='/banle/khach-hang/them/',method='GET',query='pawn_photos=1&group='+({'front':'front','back':'back','products':'products','qr':'products'}.get(request.args.get('group'),'all')))
+    return render_template('customer_popup_frame.html',popup_html=unpack(result).decode('utf-8'),pawn_photos=True,photo_group=request.args.get('group','all')),result['status']
 
 
 @bp.get('/frame')

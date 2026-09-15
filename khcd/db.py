@@ -37,6 +37,10 @@ def schema_ready():
 def require_write():
     if current_app.config['DB_READ_ONLY']:
         raise BusinessError('Đang xem dữ liệu ở chế độ chỉ đọc. Cần hoàn tất kết nối và nâng cấp CSDL trước khi ghi.')
+    if str(current_app.config.get('CD_LIVE','0'))=='1':
+        rows=all("SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('cd_loans','cd_loan_items','cd_loan_logs','cd_payments')")
+        if len(rows)!=4 or any(r['ENGINE']!='InnoDB' for r in rows):raise BusinessError('SQL mới cần đủ bốn bảng InnoDB trước khi ghi.')
+        return
     engines = all("SELECT TABLE_NAME,ENGINE FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME IN ('pawn','pawn_log','customer','khcd_event','khcd_pawn_meta','khcd_customer_meta')")
     required=('pawn','pawn_log','customer','khcd_event','khcd_pawn_meta','khcd_customer_meta')
     found={row['TABLE_NAME']:row['ENGINE'] for row in engines}

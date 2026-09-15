@@ -28,3 +28,5 @@
   button.addEventListener('click', check); check();
   for (const img of document.querySelectorAll('.loan-photo img')) img.addEventListener('error', () => { const card=img.closest('.loan-photo'); img.hidden=true; card.classList.add('error'); card.querySelector('p').textContent='Ảnh không còn đọc được. Hãy đối soát lại để kiểm tra nguồn.'; });
 })();
+
+document.querySelectorAll('[data-print]').forEach(b=>b.addEventListener('click',()=>window.print()));

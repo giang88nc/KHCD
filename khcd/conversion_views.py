@@ -64,5 +64,5 @@ def save():
         pid=request.form.get('pid',type=int)
         if not pid or request.form.get('confirmed')!='yes':raise BusinessError('Cần đối soát và xác nhận từng phiếu trước khi chuyển.')
         loan_id=C.convert(pid,request.form.get('review_hash',''),allow_exceptions=request.form.get('allow_exceptions')=='yes')
-        return {'loan_id':loan_id,'message':'Đã chuyển và đọc kiểm thành công. Nguồn vận hành vẫn là pawn; cd_loans đang chờ tiếp quản.'}
+        return {'loan_id':loan_id,'message':'Đã chuyển và đọc kiểm thành công vào cd_loans.'}
     except BusinessError as exc:return {'error':str(exc)},409

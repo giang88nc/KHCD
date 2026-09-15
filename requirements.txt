@@ -6,3 +6,5 @@ waitress==3.0.2
 Django==5.2.17
 pyodbc==5.3.0
 Pillow==12.3.0
+
+segno==1.6.6

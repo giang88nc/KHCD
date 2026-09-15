@@ -1,3 +1,4 @@
+from . import live_loans as live
 import secrets
 import time
 import threading
@@ -49,7 +50,7 @@ def health():
                 info=json.load(reply)
             if info.get('app')!='KHBL Customer Bridge' or info.get('target')!='kk':service='unavailable'
         except Exception:service='unavailable'
-    return {'status':'ok','app':'KHCD','https':request.is_secure,'customer_service':service}
+    return {'status':'ok','app':'KHCD','https':request.is_secure,'customer_service':service,'loan_store':'cd_loans' if live.enabled() else 'pawn'}
 
 def paging():
     try: return max(1,min(100000,int(request.args.get('page','1'))))
@@ -58,6 +59,7 @@ def paging():
 @bp.get('/')
 @bp.get('/camdo')
 def dashboard():
+    if live.enabled():return live.dashboard()
     start,end,exclusive=date_range(request.args)
     metrics=db.one('''SELECT COUNT(*) count,COALESCE(SUM(value),0) principal,
         SUM(CASE WHEN date3 < %s THEN 1 ELSE 0 END) overdue,
@@ -127,6 +129,9 @@ def entry_customers(q='', selection=''):
 
 @bp.route('/camdo/lap-phieu/khach-hang',methods=['GET','POST'])
 def entry_customer():
+    from .customer_lookup import lookup_key
+    try:q=lookup_key(request.args.get('q',''))
+    except BusinessError as exc:return {'error':str(exc)},400
     if master.enabled():
         try:
             if request.method=='GET' and request.args.get('id'):
@@ -141,7 +146,7 @@ def entry_customer():
                 if result.get('complete') is not True:
                     return {'error':'\n'.join(result.get('errors',[])),'cust_id':result.get('cust_id'),'uncertain':result.get('uncertain',False),'partial':result.get('partial',False)},409
                 return {'customer':master.get(result['cust_id'])['customer'],'token':secrets.token_urlsafe(24)},201
-            return {'customers':entry_customers(request.args.get('q','').strip()[:100])}
+            return {'customers':entry_customers(q)}
         except BusinessError as error:return {'error':str(error)},503
     if request.method=='POST':
         try:
@@ -149,7 +154,7 @@ def entry_customer():
         except BusinessError as error:
             return {'error':str(error)},400
         return {'customer':entry_customers(selection=str(cid))[0]},201
-    return {'customers':entry_customers(request.args.get('q','').strip()[:100])}
+    return {'customers':entry_customers(q)}
 
 
 @bp.route('/camdo/lap-phieu',methods=['GET','POST'])
@@ -158,12 +163,15 @@ def pawn_new():
     data=request.form if request.method=='POST' else {}
     if request.method=='POST':
         try:
-            pid=svc.create_pawn(request.form,request.files)
+            pid=live.create(request.form,request.files) if live.enabled() else svc.create_pawn(request.form,request.files)
         except BusinessError as exc:
             error=str(exc)
             if request.accept_mimetypes.best=='application/json':return {'error':error},400
         else:
-            if request.accept_mimetypes.best=='application/json':return {'url':url_for('web.pawn_detail',pid=pid)},201
+            if live.enabled():
+                result={'url':url_for('loans.detail',loan_id=pid),'sku':live.loan(pid)['sku']}
+                return (result,201) if request.accept_mimetypes.best=='application/json' else redirect(result['url'])
+            if request.accept_mimetypes.best=='application/json':return {'url':url_for('web.pawn_detail',pid=pid),'sku':db.one('SELECT sku FROM pawn WHERE id=%s',(pid,))['sku']},201
             flash('Đã lập phiếu và ghi nhận tiền giao khách.','success')
             return redirect(url_for('web.pawn_detail',pid=pid))
     q=request.args.get('customer_q','').strip()[:100]
@@ -173,9 +181,13 @@ def pawn_new():
         error=str(exc);customers=[dict(id=selection,name='Chưa đọc được hồ sơ KK',phone='',cccd='',addr='')] if selection else []
     if selection and customers:q=customers[0]['name']
     day_end=today()+timedelta(days=1)
-    daily=db.one('SELECT COUNT(*) count,COALESCE(SUM(sotien),0) principal FROM pawn_log WHERE status_id=1 AND date1>=%s AND date1<%s',(today(),day_end))
-    recent=db.all(svc.pawn_select()+' WHERE p.date1>=%s AND p.date1<%s ORDER BY p.id DESC LIMIT 8',(today(),day_end))
-    if master.enabled():master.hydrate(recent)
+    if live.enabled():
+        daily=db.one('SELECT COUNT(*) count,COALESCE(SUM(principal_change),0) principal FROM cd_loan_logs WHERE operation_id=1 AND happened_at>=%s AND happened_at<%s',(today(),day_end))
+        recent=db.all("SELECT id,sku,principal_balance value,JSON_UNQUOTE(JSON_EXTRACT(customer_snapshot,'$.name')) customer_name,phone FROM cd_loans WHERE opened_at>=%s AND opened_at<%s ORDER BY id DESC LIMIT 8",(today(),day_end))
+    else:
+        daily=db.one('SELECT COUNT(*) count,COALESCE(SUM(sotien),0) principal FROM pawn_log WHERE status_id=1 AND date1>=%s AND date1<%s',(today(),day_end))
+        recent=db.all(svc.pawn_select()+' WHERE p.date1>=%s AND p.date1<%s ORDER BY p.id DESC LIMIT 8',(today(),day_end))
+        if master.enabled():master.hydrate(recent)
     employees=[]
     if master.enabled():
         try:employees=master.call('employees')['rows']
@@ -186,8 +198,18 @@ def pawn_new():
         key=data.get('request_key') or secrets.token_urlsafe(24),form=data,error=error,daily=daily,recent=recent,master_kk=master.enabled(),employees=employees,actions=actions,safes=safes,customer_token=secrets.token_urlsafe(24)),400 if error else 200
 
 
+@bp.get('/camdo/lap-phieu/phien-giao-dich')
+def desk_sessions():
+    if live.enabled():return live.sessions(request.args)
+    from .desk_sessions import listing
+    try:return listing(request.args)
+    except master.Unavailable as exc:return {'error':str(exc)},503
+    except BusinessError as exc:return {'error':str(exc)},400
+
+
 @bp.get('/camdo/lap-phieu/tra-phieu')
 def desk_receipt():
+    if live.enabled():return live.receipt(request.args.get('q',''))
     try:
         field,value=svc.desk.receipt_key(request.args.get('q'),request.host.split(':')[0])
         matches=db.all('SELECT id FROM pawn WHERE '+field+'=%s LIMIT 2',(value,))
@@ -199,8 +221,21 @@ def desk_receipt():
             for name,kind in [('anh_truoc','mat-truoc'),('anh_sau','mat-sau')]:
                 result['photos'].setdefault(name,url_for('customer_popup.api',path=f"banle/khach-hang/{p['pmv_cust_id']}/anh/{kind}/"))
         result['detail_url']=url_for('web.pawn_detail',pid=p['id'])
+        result['fingerprint']=p['fingerprint']
+        result['cancellation']=svc.cancellation_state(p)
         return result
     except BusinessError as exc:return {'error':str(exc)},400
+
+
+@bp.post('/camdo/lap-phieu/huy-phien')
+def desk_cancel():
+    try:
+        pid=request.form.get('pid',type=int)
+        if not pid or request.form.get('returned_funds')!='yes':
+            raise BusinessError('Xác nhận đã thu hồi đủ tiền trước khi hủy phiên.')
+        live.process(pid,0,request.form) if live.enabled() else svc.process_pawn(pid,request.form,'cancel')
+        return {'message':'Đã hủy phiên, ghi hoàn tiền và giữ lịch sử đối soát.'}
+    except BusinessError as exc:return {'error':str(exc)},409
 
 
 @bp.post('/camdo/lap-phieu/doc-qr')
@@ -249,6 +284,7 @@ def pawn_detail(pid):
 
 @bp.post('/camdo/phieu-cam-do/<int:pid>/<action>')
 def pawn_action(pid,action):
+    if live.enabled():raise BusinessError('Phiếu cũ chỉ để xem. Mở biên nhận SQL mới để giao dịch.')
     svc.process_pawn(pid,request.form,action)
     flash('Đã ghi nhận '+EVENTS.get(action,'thao tác').lower()+'.','success')
     return redirect(url_for('web.pawn_detail',pid=pid))
@@ -393,6 +429,7 @@ def customer_restore(cid):
 
 @bp.get('/camdo/thong-ke')
 def reports():
+    if live.enabled():return live.report()
     start,end,exclusive=date_range(request.args);page=paging();kind=request.args.get('kind','all')
     tab=request.args.get('tab','transactions')
     if tab=='audit':

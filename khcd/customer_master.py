@@ -80,4 +80,5 @@ def hydrate(rows):
 
 
 def history(cid):
+    if str(current_app.config.get('CD_LIVE','0'))=='1':return db.all("SELECT id,sku,principal_balance value,CASE loan_state WHEN 'ACTIVE' THEN 1 WHEN 'REDEEMED' THEN 5 WHEN 'LIQUIDATED' THEN 6 ELSE 0 END status,opened_at date1 FROM cd_loans WHERE cust_id=%s ORDER BY id DESC LIMIT 30",(cid,))
     return db.all('SELECT p.id,p.sku,p.value,p.status,p.date1 FROM pawn p JOIN khcd_pawn_customer k ON k.pawn_id=p.id WHERE k.pmv_cust_id=%s ORDER BY p.id DESC LIMIT 30',(cid,))

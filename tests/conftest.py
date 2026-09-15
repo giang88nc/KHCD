@@ -29,11 +29,13 @@ def mysql_config():
     from khcd.loan_conversion import DDL as CONVERSION_DDL
     with conn.cursor() as c:
         for ddl in CONVERSION_DDL:c.execute(ddl)
+    from khcd.live_schema import upgrade as live_upgrade
+    live_upgrade(conn)
     with conn.cursor() as c:c.execute(auth.AUTH_DDL)
     with conn.cursor() as c:
         c.execute("INSERT INTO gold_price (id,name,scut,unit,sort) VALUES (1,'VÀNG 610','61','chỉ',1),(2,'VÀNG 9999','99','chỉ',2),(7,'Khác','#','#',7)")
         for i,label in [(1,'Cầm mới'),(4,'Gia hạn'),(5,'Chuộc đồ')]:c.execute('INSERT INTO pawn_status (id,name) VALUES (%s,%s)',(i,label))
-    yield dict(cfg,DB_NAME=name,AUTH_SOURCE_DB=name+'_auth',DB_READ_ONLY=False,TESTING=True,SECRET_KEY='test-key-only',MIN_INTEREST_DAYS=1,CUSTOMER_MASTER='legacy')
+    yield dict(cfg,DB_NAME=name,AUTH_SOURCE_DB=name+'_auth',DB_READ_ONLY=False,TESTING=True,SECRET_KEY='test-key-only',MIN_INTEREST_DAYS=1,CUSTOMER_MASTER='legacy',CD_LIVE='0')
     assert name.startswith('khj_cd_test_') and len(name)==24
     with conn.cursor() as c:
         c.execute('DROP DATABASE `'+name+'`')
