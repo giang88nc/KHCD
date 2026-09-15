@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="vi">
+<head>
+ <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#701d2a">
+ <meta name="description" content="Cầm đồ Kim Hạnh 2 — quản lý cầm vàng và trang sức"><title>{{ title or 'Đăng nhập' }} · CẦM ĐỒ Kim Hạnh 2</title>
+ <link rel="icon" href="{{ url_for('static',filename='img/favicon.png') }}">
+ <link rel="stylesheet" href="{{ url_for('static',filename='css/fonts.css') }}">
+ <link rel="stylesheet" href="{{ url_for('static',filename='app.css') }}?v=20260914-entry">
+ <link rel="stylesheet" href="{{ url_for('static',filename='ruby.css') }}?v=20260914-entry">
+ <script src="{{ url_for('static',filename='app.js') }}?v=20260914-entry" defer></script>
+ {% block page_assets %}{% endblock %}
+</head>
+<body class="ruby-app {{ 'is-authenticated' if session.get('user') else 'is-login' }}">
+{% macro icon(name, cls='') -%}<svg class="icon {{ cls }}" aria-hidden="true"><use href="{{ url_for('static',filename='icons.svg') }}#{{ name }}"></use></svg>{%- endmacro %}
+<a class="skip-link" href="#main">Đến nội dung chính</a>
+<div class="khcd-shell">
+ <header class="khcd-top">
+  <a class="khcd-brand" href="{{ url_for('web.dashboard') }}" title="Cầm đồ Kim Hạnh 2 — Tổng quan"><img src="{{ url_for('static',filename='img/logo_icon.png') }}" alt="Logo Kim Hạnh 2" width="50" height="50"><span><b>CẦM ĐỒ</b><i>KIM HẠNH 2</i></span></a>
+  {% if session.get('user') %}
+  <nav class="khcd-nav" aria-label="Chức năng chính">
+   {% for endpoint,label,name in [('dashboard','TỔNG QUAN','tong'),('pawn_new','CẦM ĐỒ','pawn'),('pawns','PHIẾU CẦM ĐỒ','hoadon'),('loans','BIÊN NHẬN','hoadon'),('reports','THỐNG KÊ','baocao'),('customers','KHÁCH HÀNG','khach')] %}
+   {% set active = (request.endpoint == 'web.'+endpoint) or (endpoint=='loans' and (request.endpoint or '').startswith('loans.')) or (endpoint=='pawns' and request.endpoint=='web.pawn_detail') or (endpoint=='customers' and request.endpoint in ['web.customer_form','web.customer_comparison','web.customer_kk_form']) %}
+   <a href="{{ url_for('loans.listing' if endpoint=='loans' else 'web.'+endpoint) }}" class="khcd-nav-item {{ 'is-on' if active }}" {% if active %}aria-current="page"{% endif %}><img src="{{ url_for('static',filename='img/ico/'+name+'.png') }}" width="38" height="38" alt="" aria-hidden="true"><span>{{ label }}</span></a>
+   {% endfor %}
+  </nav>
+  <div class="khcd-account"><a class="channel-link" href="{{ retail_url }}" title="Mở webapp Bán lẻ Kim Hạnh 2">BÁN LẺ {{ icon('arrow') }}</a><div class="account-info"><strong>{{ display_name }}</strong><small>{{ role_label }} · {{ session.user }}</small></div><span class="account-avatar" title="{{ display_name }}">{{ session.user[:2]|upper }}</span><form method="post" action="{{ url_for('web.logout') }}"><input type="hidden" name="csrf_token" value="{{ session.csrf }}"><button class="logout-btn" title="Đăng xuất" aria-label="Đăng xuất">{{ icon('logout') }}<span>Đăng xuất</span></button></form></div>
+  {% else %}<div class="public-top-label"><span class="header-dot"></span>CẦM VÀNG & TRANG SỨC</div><a class="channel-link" href="{{ retail_url }}">BÁN LẺ {{ icon('arrow') }}</a>{% endif %}
+ </header>
+ <main id="main" class="khcd-main" tabindex="-1">
+ {% if session.get('user') %}<div class="khcd-page">
+  {% if readonly %}<div class="notice">{{ icon('info') }} Chế độ chỉ đọc · Các thao tác ghi dữ liệu đang tắt.</div>{% endif %}
+  {% for category,message in get_flashed_messages(with_categories=true) %}<div class="flash {{ category }}" role="status">{{ icon('check') }} {{ message }}</div>{% endfor %}
+  {% block content %}{% endblock %}
+ </div>{% else %}{% block public %}{% endblock %}{% endif %}
+ </main>
+ <footer class="khcd-footer">
+  <div class="footer-company"><img src="{{ url_for('static',filename='img/logo_icon.png') }}" alt="" width="32" height="32"><div><b>CÔNG TY TNHH TRANG SỨC KIM HẠNH 2</b><span>Cầm vàng & trang sức · Kim Hạnh 2</span></div></div>
+  {% if session.get('user') %}<div class="footer-status"><i class="status-light"></i><div><b>{{ 'CHỈ ĐỌC' if readonly else 'DỮ LIỆU CẦM ĐỒ' }}</b><span>{{ 'Tra cứu hồ sơ' if readonly else 'Ghi nhận theo tài khoản đăng nhập' }}</span></div></div>{% endif %}
+  <div class="footer-product"><b>KHCD · Webapp cầm đồ</b><span>{{ 'Kết nối HTTPS' if request.is_secure else 'Kim Hạnh 2' }} · VND</span></div><div class="footer-clock" aria-live="off"><b data-clock-time>--:--:--</b><span data-clock-date>{{ today|datevn }}</span></div>
+ </footer>
+</div>
+</body></html>

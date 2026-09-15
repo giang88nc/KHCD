@@ -1,0 +1,14 @@
+.venv/
+__pycache__/
+.pytest_cache/
+.env
+.env.*
+!.env.example
+instance/
+backups/
+output/
+media/
+*.log
+ops/caddy/caddy.exe
+LAN_HTTPS_KIT/install-result.txt
+LAN_HTTPS_KIT/hosts-before-*.bak

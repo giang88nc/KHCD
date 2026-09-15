@@ -1,0 +1,12 @@
+<div class="form-grid">
+{% for name,label,limit in [('CustName','Họ tên',500),('Phone','SĐT chính',10),('GhiChu2','SĐT 2',10),('GhiChu3','SĐT 3',10),('CMND','CCCD / CMND',12),('Address','Địa chỉ',500)] %}
+<label>{{ label }}{% if name=='CustName' %} *{% endif %}<input name="{{ name }}" value="{{ values.get(name) or '' }}" maxlength="{{ limit }}" {% if name=='CustName' %}required{% endif %} {% if name in ['Phone','GhiChu2','GhiChu3'] %}inputmode="numeric" pattern="[0-9]{10}"{% endif %}></label>{% endfor %}
+<label>Giới tính *<select name="Gender" required><option value="">Chọn theo hồ sơ khách</option><option value="1" {{ 'selected' if values.get('Gender')=='1' }}>Nam</option><option value="0" {{ 'selected' if values.get('Gender')=='0' }}>Nữ</option></select></label>
+{% for name,label in [('BirthDate','Ngày sinh'),('NgayCap','Ngày cấp')] %}<label>{{ label }}<input type="date" name="{{ name }}" value="{{ values.get(name) or '' }}"></label>{% endfor %}
+<label>Nơi cấp<input name="NoiCap" value="{{ values.get('NoiCap','Cục Cảnh Sát QLHC về TTXH') or '' }}" maxlength="200"></label>
+<label>Email<input type="email" name="Email" value="{{ values.get('Email') or '' }}" maxlength="100"></label>
+<label>Loại khách<select name="CustType">{% for value,label in [('','Thường'),('VIP','VIP'),('VVIP','VVIP'),('CANHBAO','Cảnh báo')] %}<option value="{{ value }}" {{ 'selected' if (values.get('CustType') or '')==value }}>{{ label }}</option>{% endfor %}</select></label>
+<label class="span-2">Ghi chú<textarea name="Notes" maxlength="1000">{{ values.get('Notes') or '' }}</textarea></label>
+</div>
+<input type="hidden" name="Active" value="{{ values.get('Active','1') }}">
+<p class="field-note">Mỗi SĐT có đúng 10 chữ số; các số phải khác nhau và chưa thuộc hồ sơ khác. Có thể để trống số chưa có.</p>

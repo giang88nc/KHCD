@@ -1,0 +1,10 @@
+{% extends 'base.html' %}{% from '_parts.html' import csrf with context %}
+{% block public %}
+<div class="ruby-login">
+ <div class="login-aura" aria-hidden="true"><span></span><span></span><span></span></div>
+ <section class="login-identity"><div class="identity-logo"><img src="{{ url_for('static',filename='img/logo_icon.png') }}" alt="Kim Hạnh 2" width="170" height="170"></div><div class="identity-rule"></div><span class="eyebrow">KIM HẠNH 2 · CẦM VÀNG & TRANG SỨC</span><h1>Trao gửi tài sản.<br>Giữ trọn niềm tin.</h1><p>Quản lý từng biên nhận, kỳ lãi và giao dịch<br>trong một không gian làm việc thống nhất.</p></section>
+ <section class="ruby-login-card"><form method="post" class="login-form">{{ csrf() }}<span class="eyebrow">CHÀO MỪNG TRỞ LẠI</span><h2>Đăng nhập Cầm đồ</h2><p class="muted">Sử dụng tài khoản đang dùng tại Bán lẻ Kim Hạnh 2.</p>
+ {% if error %}<div class="flash error" role="alert">{{ error }}</div>{% endif %}
+ <label for="login-username">Tài khoản<input id="login-username" name="username" placeholder="Nhập tên tài khoản" autocomplete="username" required autofocus></label><label for="login-password">Mật khẩu<input id="login-password" name="password" type="password" placeholder="Nhập mật khẩu" autocomplete="current-password" required></label><button class="btn btn-primary btn-block">Đăng nhập {{ icon('arrow') }}</button><div class="login-trust">{{ icon('shield') }}<span>Tài khoản đồng bộ với hệ thống KHBL</span></div></form></section>
+</div>
+{% endblock %}

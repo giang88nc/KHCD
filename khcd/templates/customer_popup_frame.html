@@ -1,0 +1,18 @@
+<!doctype html><html lang="vi"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Khách hàng · Kim Hạnh 2</title>
+<link rel="stylesheet" href="{{ url_for('customer_popup.asset',asset='css/fonts.css') }}">
+<link rel="stylesheet" href="{{ url_for('customer_popup.asset',asset='css/khbl.css') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='customer-popup-frame.css') }}">
+<script src="{{ url_for('customer_popup.asset',asset='js/vendor/htmx.min.js') }}" defer></script>
+<script src="{{ url_for('customer_popup.asset',asset='js/vn_text.js') }}" defer></script>
+<script src="{{ url_for('customer_popup.asset',asset='js/cccd.js') }}" defer></script>
+<script src="{{ url_for('customer_popup.asset',asset='js/khbl.js') }}" defer></script>
+<script src="{{ url_for('static',filename='customer-popup-frame.js') }}" defer></script>
+{% if pawn_photos %}<link rel="stylesheet" href="{{ url_for('static',filename='pawn-photos.css') }}?v=compact4"><script src="{{ url_for('static',filename='pawn-photos.js') }}?v=compact4" defer></script>{% endif %}
+</head><body data-pawn-photos="{{ '1' if pawn_photos else '' }}" data-popup-csrf="{{ session.csrf }}" hx-headers='{{ {"X-CSRFToken": session.csrf}|tojson }}'>
+<div id="modal-root">{% if popup_error %}
+<div class="khbl-modal" role="dialog" aria-modal="true"><div class="khbl-modal__veil"></div><div class="khbl-modal__box"><div class="khbl-modal__head"><h2>Chưa mở được hồ sơ khách</h2><button type="button" class="khbl-modal__x" onclick="closeKhblModal()" aria-label="Đóng">×</button></div><div class="khbl-modal__body"><p role="alert">{{ popup_error }}</p></div></div></div>
+{% else %}{{ popup_html|safe }}{% endif %}</div>
+<div id="toast-root" class="khbl-toast"></div>
+</body></html>

@@ -1,0 +1,15 @@
+{% from '_parts.html' import csrf with context %}
+<dialog id="loan-conversion" aria-labelledby="conversion-title" data-preview="{{ url_for('conversion.preview') }}" data-save="{{ url_for('conversion.save') }}">
+ <div class="dialog-head"><h2 id="conversion-title">CHUYỂN ĐỔI PHIẾU</h2><button type="button" class="icon-btn" data-close aria-label="Đóng chuyển đổi">×</button></div>
+ <p class="conversion-notice">pawn → cd_loans · Chuyển từng phiếu, giữ nguyên nguồn. Bảng mới đang chờ tiếp quản; giao dịch hiện tại vẫn ghi vào pawn.</p>
+ <label class="conversion-confirm"><input type="checkbox" id="conversion-exceptions"> Cho phép lỗi đã duyệt: CustID KK, tiền thu/chi, số món tài sản — chỉ phiếu có giao dịch trong 6 tháng gần nhất.</label>
+ <p class="batch-hint">Sai lệch được lưu để đối soát, không tự sửa tiền, ghép khách theo SĐT hoặc tạo món vàng. Các lỗi khác vẫn chặn.</p>
+ <form id="conversion-search"><label>Mã biên nhận<input id="conversion-query" maxlength="255" autocomplete="off" placeholder="Nhập đúng mã phiếu…" required></label><button class="btn" type="submit">Đối soát</button></form>
+ <p id="conversion-message" role="status" aria-live="polite"></p>
+ <div id="conversion-result" hidden>
+  <div id="conversion-summary"></div>
+  <p id="conversion-counts"></p>
+  <div class="conversion-table"><table><thead><tr><th>Kiểm tra</th><th>Nguồn</th><th>Đích / kỳ vọng</th><th>Kết quả / chi tiết</th></tr></thead><tbody id="conversion-checks"></tbody></table></div>
+  <form id="conversion-confirm" data-async>{{ csrf() }}<label class="conversion-confirm"><input type="checkbox" id="conversion-ack"> Tôi đã xem đối soát và các lưu ý; xác nhận chuyển riêng phiếu này.</label><div class="dialog-actions"><button type="button" class="btn" data-close>Đóng</button><button id="conversion-submit" type="submit" class="btn btn-primary" disabled {{ 'data-readonly=1' if readonly }}>Chuyển phiếu này</button></div></form>
+ </div>
+</dialog>
