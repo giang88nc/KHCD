@@ -492,11 +492,8 @@ def outgoing_details(p,last,data):
     account=str(data.get('bank_account','')).strip();holder=str(data.get('bank_holder','')).strip()
     if not account or len(account)>34 or not account.isascii() or not account.isalnum():raise BusinessError('Số tài khoản không hợp lệ.')
     if not holder or len(holder)>120:raise BusinessError('Nhập và đối chiếu tên tài khoản khách.')
-    reference=QR.khong_dau(data.get('bank_reference') or p['sku'])
-    sku=QR.khong_dau(p['sku'])
-    if sku not in reference:reference=sku+' '+reference
-    reference=reference[:25]
-    payload=QR.payload(code,account,int(bank),reference,holder)
+    reference='THANH TOÁN TIỀN VÀNG KH'+str(last['id'])
+    payload=QR.payload(code,account,int(bank),QR.khong_dau(reference),holder)
     import io,segno
     output=io.BytesIO();segno.make(payload,micro=False,error='m').save(output,kind='png',scale=7,border=4)
     info=dict(bank_name=QR.bank_ten(code),bank_code=code,bank_account=account,bank_holder=holder,bank_reference=reference,

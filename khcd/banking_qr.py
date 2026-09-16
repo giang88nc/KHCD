@@ -150,7 +150,7 @@ def payload(bank_code, account_no, amount=0, info="", ten=""):
     ten = khong_dau(ten)[:25]
     if ten:
         body += _tlv("59", ten)
-    info = "".join(c for c in str(info or "") if c.isalnum() or c in " -").strip()[:25]   # 08/09: giữ '-' cho mã phiếu 26-09-08-000167
+    info = "".join(c for c in str(info or "") if c.isalnum() or c in " -").strip()[:80]   # Giữ đầy đủ nội dung và mã phiên; trước đây 25 ký tự. 08/09: giữ '-' cho mã phiếu 26-09-08-000167
     if info:
         body += _tlv("62", _tlv("08", info))
     body += "6304"                                            # ID+len của CRC, rồi tính CRC

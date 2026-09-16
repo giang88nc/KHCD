@@ -29,6 +29,14 @@
 
   Toa do tung khoi den tu /camdo/bien-nhan/mau-in.css (sinh tu khj_bl.pmv_state['gcd_layout']).
   Danh sach khoi do gcd_print._khoi() dung theo dung gcd_layout.BLOCKS nen DOM luon du data-gcd.
+
+  KHOI ANH — MA VACH SO BIEN NHAN (16/09/2026): khoi nao co b.anh thi render THANG the <img> mang
+  data-gcd, KHONG boc them <div> — de CSS sinh ra neo vi tri vao chinh the anh, dung cach ban xem
+  truoc ben KHBL (templates/pos/_gcd_a5.html) lam. Hai ben lech markup la can mot dang in mot neo.
+  Anh la PNG data URI do khcd/ma_vach.py ve; hinh dang anh do class .gcd-anh trong CSS SINH RA
+  quyet dinh (gcd_layout.CSS_ANH), khong phai static/gcd-print.css.
+  ⚠ KHONG ve ma vach bang CSS/background: ban in nay co y khong co print-color-adjust nen moi thu
+  ve bang background se BIEN MAT tren giay. The <img> la noi dung that, luon in ra.
 #}<!doctype html>
 <html lang="vi">
 <head>
@@ -83,6 +91,18 @@
 <p class="gcd-bao gcd-bao-vang no-print">SÁT MÉP GIẤY: {{ mep|join(' · ') }} — nằm trong 6 mm biên cứng, nhiều máy in sẽ
  cắt cụt hoặc thu nhỏ cả trang. Kéo khối vào trong ở Bán lẻ → Mẫu in GCD, hoặc in thử trên GIẤY TRẮNG trước.</p>
 {% endif %}
+{% if vach_hep %}
+<p class="gcd-bao gcd-bao-do no-print">MÃ VẠCH QUÁ HẸP: vạch hẹp chỉ còn {{ vach_mm }} mm, dưới mức
+ {{ vach_toi_thieu }} mm mà máy quét quầy bắt đầu chịu thua — in ra thì máy quét <b>câm mà không báo lỗi
+ gì</b>, nhân viên cứ tưởng máy quét hỏng. Nới khối "Mã vạch Số biên nhận" rộng ra ở Bán lẻ → Mẫu in GCD
+ (hoặc bỏ thu nhỏ tỷ lệ in) rồi quét thử, trước khi giao giấy cho khách.</p>
+{% endif %}
+{% if vach_thu %}
+<p class="gcd-bao gcd-bao-xam no-print">Mã vạch có vạch hẹp {{ vach_mm }} mm — dưới mức thoải mái
+ {{ vach_can_thu }} mm của máy quét cầm tay, vẫn thường đọc được nhưng <b>phải quét thử trên tờ in đầu
+ tiên</b>. Bề rộng khối đã là trần cứng của tờ giấy in sẵn (bên phải chữ đỏ KIM HẠNH II), nên nếu quét
+ không ra thì nới ô Rộng % lấn sang trái ở Bán lẻ → Mẫu in GCD — <b>đừng cắt bớt chữ số</b> của mã phiếu.</p>
+{% endif %}
 {% if lech_tien %}
 <p class="gcd-bao gcd-bao-vang no-print">Phiếu đã phát sinh: gốc ban đầu {{ goc }} ₫ · dư gốc hiện tại {{ du }} ₫.
  Giấy đang in theo <b>gốc ban đầu</b> (đổi ở Bán lẻ → Mẫu in GCD). Bản in cũ (A4) in theo dư gốc hiện tại.</p>
@@ -114,9 +134,11 @@
   <div class="gcd-thap gcd-thap-3" aria-hidden="true"></div>
   <div class="gcd-thap gcd-thap-4" aria-hidden="true"></div>
   {% endif %}
-  {% for b in khoi %}
+  {% for b in khoi %}{% if b.anh %}
+  <img class="gcd-anh" data-gcd="{{ b.key }}" src="{{ b.anh }}" draggable="false" alt="Mã vạch Code 39 của số biên nhận {{ loan.sku }}">
+  {% else %}
   <div class="gcd-o {{ b.cls }}" data-gcd="{{ b.key }}">{% for d in b.dong %}<span>{{ d }}</span>{% endfor %}</div>
-  {% endfor %}
+  {% endif %}{% endfor %}
  </section>
 </div>
 

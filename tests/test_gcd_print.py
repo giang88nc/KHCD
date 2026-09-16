@@ -75,7 +75,7 @@ def test_doc_so_bien():
 # ── 2. MẶC ĐỊNH + GỘP BẢN LƯU ────────────────────────────────────────────────────────────────
 def test_mac_dinh_du_khoi():
     m = G.mac_dinh()
-    assert len(G.BLOCKS) == 17
+    assert len(G.BLOCKS) == 18          # 17 khối chữ + khối ẢNH mã vạch (thêm 16/09/2026)
     for b in G.BLOCKS:
         assert b['key'] in m and 'left' in m[b['key']] and 'an' in m[b['key']]
     assert m[G.IN_KEY]['kho'] == 'A5N'                 # KHÔNG phải "auto": tờ NGANG 210mm sẽ tràn

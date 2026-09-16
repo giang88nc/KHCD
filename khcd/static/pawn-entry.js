@@ -71,7 +71,7 @@
   function warnValuation(){const over=rows.length>0&&(!loaded||loaded.valuation_known)&&amount($('principal').value)>totalValuation;$('principal-panel').classList.toggle('principal-over',over);$('valuation-warning').hidden=!over;}
   function update(resetAmounts=false){
     const principal=amount($('principal').value),paymentTotal=loaded?serverAmount(loaded.checkout?.total):principal,bankOn=$('pay-bank').checked;
-    $('principal-readable').textContent=words(principal);$('bank-fields').hidden=!bankOn;
+    $('principal-readable').textContent=words(principal);$('bank-fields').hidden=false;
     for(const name of ['bank_name','bank_account','bank_holder'])form.elements.namedItem(name).required=bankOn;
     $('bank-amount').readOnly=!bankOn;$('cash-input').readOnly=!bankOn;
     if((!loaded||canEditPayment())&&(resetAmounts||!bankOn)){$('bank-amount').value=fmt(bankOn?paymentTotal:0n);$('cash-input').value=fmt(bankOn?0n:paymentTotal);}
@@ -84,7 +84,7 @@
     $('checkout-receipt-code').textContent=loaded?.sku||'PHIẾU MỚI';
     $('checkout-due-label').textContent=loaded?'Ngày hẹn đã chốt':'Ngày hẹn dự kiến';
     $('checkout-note').hidden=!!loaded;
-    document.querySelector('.session-qr-corner').hidden=!!loaded&&!loaded.photos?.anh_qr;
+    document.querySelector('.session-qr-corner').hidden=false;
     $('checkout-last-session').hidden=!checkout?.at;
     $('checkout-last-session').textContent=checkout?[checkout.operation,checkout.at.slice(11,16),checkout.at.slice(0,10).split('-').reverse().join('/')].filter(Boolean).join(' · '):'';
     $('checkout-direction').textContent=checkout?checkout.direction+': '+money(serverAmount(checkout.total)):'CHI CHO KHÁCH';
@@ -96,7 +96,7 @@
     const field=$(id),value=digits(field.value);field.value=value?fmt(BigInt(value)):'';
     if(['bank-amount','cash-input'].includes(id)){
       const principal=loaded?serverAmount(loaded.checkout?.total):amount($('principal').value),entered=amount(field.value),other=id==='cash-input'?'bank-amount':'cash-input';
-      $(other).value=fmt(entered<=principal?principal-entered:0n);$('bank-status').textContent=entered>principal?'Số tiền vượt tiền cầm.':'';
+      $(other).value=fmt(entered<=principal?principal-entered:0n);field.setCustomValidity(entered>principal?'Số tiền vượt tiền CHI của phiên.':'');
     }
     update(id==='principal');if(id==='item-price')previewItem();
   });
@@ -113,7 +113,7 @@
     if(has)$('edit-customer').dataset.custId=selected.id;else delete $('edit-customer').dataset.custId;
     $('customer-query').closest('.customer-lookup').classList.toggle('has-customer',has);
   }
-  function clearCustomer(){selected=null;selectVersion++;qrVersion++;$('entry-customer').value='';$('customer-facts').hidden=true;$('edit-customer').disabled=true;delete $('edit-customer').dataset.custId;for(const name of ['bank_name','bank_account','bank_holder'])form.elements.namedItem(name).value='';$('bank-qr-input').value='';$('bank-status').textContent='';post('customer',{id:'',photos:{}});syncCustomerActions();}
+  function clearCustomer(){selected=null;selectVersion++;qrVersion++;$('entry-customer').value='';$('customer-facts').hidden=true;$('edit-customer').disabled=true;delete $('edit-customer').dataset.custId;for(const name of ['bank_name','bank_account','bank_holder'])form.elements.namedItem(name).value='';$('bank-qr-input').value='';post('customer',{id:'',photos:{}});syncCustomerActions();}
   $('clear-customer').addEventListener('click',()=>{if(loaded)return;clearCustomer();$('customer-query').value='';closeResults();$('customer-search-status').textContent='Tìm và chọn khách KK.';$('customer-query').focus();});
   async function get(url){const response=await fetch(url,{headers:{Accept:'application/json'}});const data=await response.json();if(!response.ok||data.error)throw new Error(data.error||'Không đọc được dữ liệu.');return data;}
   async function choose(id){
@@ -193,7 +193,7 @@
     const editable=canEditPayment();
     for(const id of ['pay-cash','pay-bank','bank-amount','cash-input','bank-qr-input','scan-bank','make-outgoing-qr']){const field=$(id);if(field)field.disabled=!editable;}
     for(const key of ['bank_name','bank_account','bank_holder','bank_reference'])form.elements.namedItem(key).disabled=!editable;
-    if($('make-outgoing-qr'))$('make-outgoing-qr').hidden=!editable||!$('pay-bank').checked;
+    if($('make-outgoing-qr')){$('make-outgoing-qr').hidden=false;$('make-outgoing-qr').disabled=!editable||!$('pay-bank').checked;}
     if(editable&&serverAmount(loaded.checkout.payment.bank_amount)>0n)$('pay-cash').disabled=true;
     if($('payment-window'))$('payment-window').textContent=editable?'Có thể chọn chuyển khoản trong '+Math.ceil((paymentDeadline-performance.now())/60000)+' phút.':loaded?'Thanh toán đã khóa hoặc phiên không phải CHI.':'Xác nhận phiếu trước để chọn chuyển khoản.';
   }
@@ -204,7 +204,7 @@
   });
   $('save-outgoing-qr').addEventListener('click',async()=>{
     if(!outgoingPreview||busy||loaded!==outgoingPreview.receipt)return;const {fd,receipt}=outgoingPreview;fd.set('mode','save');busy=true;$('save-outgoing-qr').disabled=true;
-    try{const response=await fetch(receipt.checkout.payment_edit.url,{method:'POST',body:fd,headers:{Accept:'application/json'}});const data=await response.json();if(!response.ok)throw Error(data.error||'Chưa lưu được chuyển khoản.');$('outgoing-qr-dialog').close();await lookupReceipt(data.sku);$('bank-status').textContent='Đã lưu QR và phương thức chuyển khoản. Chưa xác nhận ngân hàng đã chuyển tiền.';}catch(error){$('outgoing-qr-status').textContent=error.message;$('save-outgoing-qr').disabled=false;}finally{busy=false;}
+    try{const response=await fetch(receipt.checkout.payment_edit.url,{method:'POST',body:fd,headers:{Accept:'application/json'}});const data=await response.json();if(!response.ok)throw Error(data.error||'Chưa lưu được chuyển khoản.');$('outgoing-qr-dialog').close();await lookupReceipt(data.sku);$('desk-save-status').textContent='Đã lưu QR và phương thức chuyển khoản. Chưa xác nhận ngân hàng đã chuyển tiền.';}catch(error){$('outgoing-qr-status').textContent=error.message;$('save-outgoing-qr').disabled=false;}finally{busy=false;}
   });
   form.elements.bank_name.addEventListener('input',()=>{bankCode='';});
   function refreshCancellation(){
@@ -258,7 +258,7 @@
     const displayedPayment=p.checkout?.payment||p.payment;
     for(const key of ['bank_name','bank_account','bank_holder','bank_reference'])form.elements.namedItem(key).value=displayedPayment[key]||'';
     $('bank-amount').value=fmt(serverAmount(displayedPayment.bank_amount));$('cash-input').value=fmt(serverAmount(displayedPayment.cash));
-    form.elements.bank_reference.value=displayedPayment.bank_reference||p.sku;$('pay-bank').checked=serverAmount(displayedPayment.bank_amount)>0n;$('pay-cash').checked=!$('pay-bank').checked;$('bank-status').textContent='';
+    form.elements.bank_reference.value=p.checkout?.log_id?'THANH TOÁN TIỀN VÀNG KH'+p.checkout.log_id:'';$('pay-bank').checked=serverAmount(displayedPayment.bank_amount)>0n;$('pay-cash').checked=!$('pay-bank').checked;
     render();$('item-summary').value=p.content;update();lockForm(true);syncCustomerActions();post('lock',{locked:true,id:p.customer.id,photos:p.photos});refreshCancellation();error('');
   }
   async function lookupReceipt(raw){
@@ -358,14 +358,14 @@
   $('desk-qr-raw').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();readQr(qrKind,e.target.value);}});
   $('bank-qr-input').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();readQr('bank',e.target.value);}});
   async function readQr(kind,text='',file=null){
-    if(kind==='bank'&&loaded&&!canEditPayment())return;const version=++qrVersion,box=$('desk-qr-dialog').open?$('desk-qr-status'):$('bank-status');box.textContent='Đang đọc mã QR…';
+    if(kind==='bank'&&loaded&&!canEditPayment())return;if(kind==='bank'&&!$('desk-qr-dialog').open)showQr('bank');const version=++qrVersion,box=$('desk-qr-status');box.textContent='Đang đọc mã QR…';
     try{if(file&&file.size>15*1024*1024)throw new Error('Ảnh QR tối đa 15 MB.');
       const fd=new FormData();fd.set('csrf_token',form.elements.csrf_token.value);fd.set('kind',kind);fd.set('text',text);if(file)fd.append('image',file);
       const response=await fetch(form.dataset.qr,{method:'POST',body:fd,headers:{Accept:'application/json'}});const data=await response.json();if(version!==qrVersion)return;if(!response.ok||data.error)throw new Error(data.error||'Không đọc được QR.');
       if(kind==='receipt'){if($('desk-qr-dialog').open)$('desk-qr-dialog').close();lookupReceipt(data.text);return;}
       bankCode=data.bank_code||data.bank_name;const oldAccount=form.elements.bank_account.value;form.elements.bank_name.value=data.bank_name;form.elements.bank_account.value=data.bank_account;
       form.elements.bank_holder.value=data.bank_holder||(oldAccount===data.bank_account?form.elements.bank_holder.value:'');
-      $('pay-bank').checked=true;update(true);$('bank-status').textContent=data.warning||'Đã đọc QR. Đối chiếu tài khoản và tên người nhận.';if(!loaded)dirty=true;
+      $('pay-bank').checked=true;update(true);$('desk-qr-status').textContent=data.warning||'Đã đọc QR. Đối chiếu tài khoản và tên người nhận.';if(!loaded)dirty=true;
       if(!loaded&&data.qr_image&&!file){const bytes=Uint8Array.from(atob(data.qr_image),c=>c.charCodeAt(0));post('qr',{file:new File([bytes],'qr-khach.png',{type:'image/png'})});}
       else if(!loaded&&file)post('qr',{file});
       if($('desk-qr-dialog').open)$('desk-qr-dialog').close();

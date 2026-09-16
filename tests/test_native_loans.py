@@ -407,6 +407,8 @@ def test_outgoing_qr_exact_amount_and_atomic_payment_edit(native,client):
     preview=client.post(url,data=data)
     assert preview.status_code==200,preview.json
     parsed=QR.parse(preview.json['qr_payload'])
+    assert preview.json['bank_reference']=='THANH TOÁN TIỀN VÀNG KH'+str(data['log_id'])
+    assert parsed['info']=='THANH TOAN TIEN VANG KH'+str(data['log_id'])
     assert parsed['hop_le'] and parsed['amount']==1234567 and parsed['account']=='0011223344'
     saved=client.post(url,data={**data,'mode':'save'})
     assert saved.status_code==200,saved.json

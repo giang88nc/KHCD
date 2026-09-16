@@ -37,7 +37,7 @@ KEY = "gcd_layout"
 NHO_GIAY = 120                             # nhớ tạm bố cục trong tiến trình (giây)
 TEP_NHO = "gcd_layout.json"                 # bản chép dự phòng trong instance/
 
-# ── 17 KHỐI — đo trực tiếp trên ảnh static/img/GCD.jpg (2470×1724) ────────────────────────────
+# ── 18 KHỐI — đo trực tiếp trên ảnh static/img/GCD.jpg (2470×1724) ────────────────────────────
 # sel dùng ATTRIBUTE SELECTOR [data-gcd="key"] nên markup và CSS không thể trôi khỏi nhau:
 # template lặp đúng BLOCKS này, mỗi khối một phần tử mang data-gcd cùng key.
 # an: 1 = ẩn khối (css sinh display:none) — khối không phải tiệm nào cũng dùng.
@@ -51,6 +51,27 @@ BLOCKS = [
     {"key": "so_cuong_2",     "ten": "Số phiếu — cuống dưới",      "left": 5.6,  "top": 46.2, "w": 22,   "h": 3.2,  "fs": 8,    "an": 0},
     {"key": "cuong_chi_tiet", "ten": "Chi tiết cuống (tuỳ chọn)",  "left": 2.5,  "top": 8,    "w": 25,   "h": 37,   "fs": 6.5,  "an": 1},
     # B. THÂN PHẢI — biên nhận giao khách
+    # MÃ VẠCH Code 39 của SỐ BIÊN NHẬN (GĐ yêu cầu 16/09/2026). Khối này chứa ẢNH chứ không chứa
+    # chữ: gcd_print._khoi() gắn thêm data URI PNG do khcd/ma_vach.py vẽ, template đổ ra thẻ <img>.
+    # 'fs' giữ nguyên 8 dù ảnh không dùng cỡ chữ — số đo phải khớp TỪNG THUỘC TÍNH với KHBL, vì cái
+    # đi qua pmv_state là nguyên cụm JSON của khối.
+    # Vị trí do KHBL ĐO BẰNG MÁY trên GCD.jpg (không ước lượng bằng mắt — lần ước lượng đầu đã sai
+    # 5% và đè mất chữ "II" của KIM HẠNH II): dải y 5,0–12,4% nằm DƯỚI dòng in sẵn "DNTN KINH DOANH
+    # VÀNG & CẦM ĐỒ" và TRÊN dòng địa chỉ; chữ đỏ "KIM HẠNH II" hết ở 77,1%, từ đó sang phải sạch
+    # mực. Đây là khoảng trống rộng nhất NẰM TRÊN ô "SỐ:". Mép phải 96,2% chừa 8,0 mm, ngoài vùng
+    # chết cơ khí 4–6 mm của máy in (cùng lý do đã bắt khối giay_to phải TẮT SẴN).
+    # ⚠ RỘNG 18,8% (= 39,5 mm) LÀ TRẦN CỨNG CỦA TỜ GIẤY NÀY, KHÔNG PHẢI LỰA CHỌN THẨM MỸ: cả nửa
+    # phải tờ giấy không có dải trống nào quá ~40 mm. Mã 11 chữ số chiếm 227 mô-đun hẹp (207 mô-đun
+    # vạch + 2×10 quiet-zone dựng sẵn TRONG ẢNH) ⇒ vạch hẹp ≈ 0,174 mm = 7 mil. Máy quét CCD/laser
+    # cầm tay ở cự ly quầy đọc được cỡ này NHƯNG ĐÂY LÀ ĐIỀU DUY NHẤT PHẢI QUÉT THỬ THẬT trên tờ in
+    # đầu tiên — vì vậy trang xem trước luôn hiện một dòng XÁM nhắc việc đó (gcd_print._vach_hep).
+    # Quét không ra thì ĐỪNG bóp mã cho vừa chỗ khác: nới Rộng % lấn sang trái, hoặc kéo xuống dải
+    # y 23–30,5% (bên phải tiêu đề "BIÊN NHẬN CẦM ĐỒ"), hoặc đặt tờ in sẵn có chừa chỗ cho mã vạch.
+    # TUYỆT ĐỐI KHÔNG cắt bớt chữ số cho mã ngắn lại — xem ma_vach.so_ma_vach(). Mã phiếu LỊCH SỬ
+    # dài hơn 11 số cũng làm vạch mỏng thêm ⇒ đo theo TỪNG PHIẾU chứ không đo một lần.
+    # KHÔNG làm khối "số đọc được" riêng như Giấy đảm bảo: bên đó mã vạch mang mã RÚT GỌN 9 số khác
+    # với mã in trên giấy nên phải in kèm số; ở đây khối ma_phieu ngay bên dưới đã in nguyên mã rồi.
+    {"key": "ma_phieu_vach",  "ten": "Mã vạch Số biên nhận",       "left": 77.4, "top": 5.6,  "w": 18.8, "h": 6.0,  "fs": 8,    "an": 0},
     {"key": "ma_phieu",       "ten": "Số biên nhận",               "left": 83.8, "top": 18.4, "w": 14.2, "h": 3.2,  "fs": 8,    "an": 0},
     {"key": "khach_ten",      "ten": "Nhận của Ông/Bà",            "left": 45.0, "top": 29.0, "w": 52.9, "h": 3.4,  "fs": 9,    "an": 0},
     {"key": "khach_diachi",   "ten": "Địa chỉ",                    "left": 37.0, "top": 33.0, "w": 60.9, "h": 3.4,  "fs": 9,    "an": 0},
@@ -68,6 +89,22 @@ BLOCKS = [
     {"key": "giay_to",        "ten": "Cửa hàng có giữ các giấy tờ","left": 55.5, "top": 94.1, "w": 31.8, "h": 3.0,  "fs": 8,    "an": 1},
 ]
 BLOCK_MAP = {b["key"]: b for b in BLOCKS}
+
+# Khối chứa ẢNH thay vì chữ — gcd_print gắn data URI, template đổ ra thẻ <img class="gcd-anh">.
+# Khai thành hằng để không chỗ nào phải gõ lại chuỗi "ma_phieu_vach".
+KHOI_MA_VACH = "ma_phieu_vach"
+KHOI_ANH = (KHOI_MA_VACH,)
+
+# ⚠ CHUỖI NÀY PHẢI GIỐNG TỪNG KÝ TỰ apps/pos/gcd_layout.py::CSS_ANH BÊN KHBL.
+# Đây là hình dáng ẢNH mã vạch — thứ quyết định bản xem trước bên KHBL và tờ in ra bên KHCD có
+# giống nhau không. Rule phải do css() SINH RA chứ không nằm trong static/gcd-print.css: tệp static
+# là của riêng từng dự án, để ở đó là đúng kiểu lệch hai bên đã làm chữ lệch 9 mm hôm trước.
+# object-fit:fill = kéo ảnh phủ trọn hộp; tỷ lệ BỀ NGANG giữa các vạch vẫn đều nhau (co giãn đồng
+# nhất theo trục ngang) nên máy quét vẫn đọc đúng. image-rendering:pixelated để trình duyệt đừng
+# làm mờ mép vạch lúc phóng ảnh ra khổ in — vạch mờ là máy quét câm.
+# tests/test_gcd_ma_vach.py đối chiếu từng ký tự với mã nguồn KHBL và FAIL nếu lệch.
+CSS_ANH = (".gcd-anh{display:block!important;padding:0!important;background:#fff;"
+           "object-fit:fill;image-rendering:pixelated}")
 
 # Khối chữ tự do → server tự chọn bậc co chữ (không dùng JS: CSP chặn, và co bằng JS lúc in là không kịp).
 CO_CHU = ("mon_hang", "khach_diachi", "so_tien_chu")
@@ -385,15 +422,16 @@ def css_in(inn=None):
 def css(layout=None):
     """CSS đặt vị trí + cỡ chữ từng khối. Tờ giấy trên màn = 210 mm thật → NHÌN SAO IN VẬY.
 
-    ⚠ position:relative BẮT BUỘC nằm ở đây: KHCD không có khbl.css khai sẵn; thiếu nó thì 17 khối
+    ⚠ position:relative BẮT BUỘC nằm ở đây: KHCD không có khbl.css khai sẵn; thiếu nó thì 18 khối
     position:absolute neo vào viewport và bố cục vỡ toàn bộ (vỡ giống hệt nhau ở cả bản in lẫn bản
     xem trước nên rất dễ tưởng là sai toạ độ).
-    ⚠ KHÔNG sinh background ẢNH, KHÔNG sinh print-color-adjust — bản in thật chỉ có CHỮ.
+    ⚠ KHÔNG sinh background ẢNH, KHÔNG sinh print-color-adjust — bản in thật chỉ có CHỮ và MÃ VẠCH
+    (mã vạch là thẻ <img> nội dung thật, in ra bình thường; CSS_ANH chỉ tả hình dáng thẻ đó).
     """
     layout = layout or load()
     w, h = kho_giay(layout)
     out = [".gcd-a5{position:relative!important;width:%smm!important;max-width:100%%;height:auto;aspect-ratio:%s/%s}"
-           % (_so(w), _so(w), _so(h))]
+           % (_so(w), _so(w), _so(h)), CSS_ANH]
     for b in BLOCKS:
         v = layout[b["key"]]
         sel = _sel(b["key"])

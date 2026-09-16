@@ -2,7 +2,7 @@
 gcd_print — IN BIÊN NHẬN CẦM ĐỒ LÊN GIẤY A5 NGANG ĐÃ IN SẴN.
 
 BA ĐƯỜNG TÁCH BẠCH (đường in cũ /bien-nhan/<lid>/in GIỮ NGUYÊN làm lưới an toàn):
-    GET  /camdo/bien-nhan/<lid>/giay            IN THẬT — chỉ CHỮ, KHÔNG ảnh nền, KHÔNG màu nền.
+    GET  /camdo/bien-nhan/<lid>/giay            IN THẬT — chỉ CHỮ + MÃ VẠCH, KHÔNG ảnh nền/màu nền.
     GET  /camdo/bien-nhan/<lid>/giay?nen=1      XEM TRƯỚC CÓ NỀN — kiểm khớp ô trên màn hình.
     GET  /camdo/bien-nhan/<lid>/giay?thuoc=1    IN THƯỚC — căn máy in trên GIẤY TRẮNG (xem README).
     GET  /camdo/bien-nhan/mau-in.css            CSS bố cục sinh từ khj_bl.pmv_state['gcd_layout'].
@@ -22,6 +22,12 @@ giấy và HIỆN dòng cảnh báo; CSS bố cục mới bật tờ giấy lên
 (mất 1 tờ giấy) chứ KHÔNG phun 17 khối chồng lên góc trái tờ in sẵn. static/gcd-print.js kiểm
 thêm getComputedStyle trước khi cho bấm in, và KHÔNG BAO GIỜ tự gọi window.print().
 
+MÃ VẠCH SỐ BIÊN NHẬN (16/09/2026): khối `ma_phieu_vach` không chứa chữ mà chứa ẢNH — `_anh()` gọi
+khcd/ma_vach.py (bản sao thuật toán Code 39 của KHBL) dựng PNG data URI từ CHÍNH mã phiếu đang in,
+template đổ ra thẻ <img>. Data URI chứ không phải tệp riêng: đường in phía máy chủ nạp trang qua
+file:/// trong thư mục tạm, một tệp ảnh rời nữa là một đường hụt nữa. KHÔNG vẽ mã vạch bằng CSS —
+bản in này cố ý không có print-color-adjust nên mọi thứ vẽ bằng background sẽ biến mất trên giấy.
+
 THỨ TỰ TRUY VẤN (bắt buộc): phiếu + khách + món TRƯỚC, bố cục CUỐI CÙNG — db.one() dùng chung
 connection của request, đọc chéo khj_bl mà chết connection thì mọi truy vấn sau cũng chết và rơi
 vào errorhandler 503, tức là MẤT TỜ PHIẾU.
@@ -31,7 +37,7 @@ import os
 
 from flask import Blueprint, Response, render_template, request, url_for
 
-from . import gcd_layout as G, gcd_may_in as M, live_loans as live, pawn_desk as desk
+from . import gcd_layout as G, gcd_may_in as M, live_loans as live, ma_vach as MV, pawn_desk as desk
 from .domain import money, parse_date
 from .loan_conversion import LABEL
 
@@ -106,18 +112,46 @@ def _noi_dung(ctx, layout):
     }
 
 
+def _anh(ctx, layout):
+    """Khối ẢNH → data URI. Hôm nay chỉ có mã vạch Số biên nhận.
+
+    Khối đang TẮT thì KHÔNG vẽ: dựng ảnh tốn vài ms và cả bộ nhớ, không việc gì phải trả giá cho
+    một khối mà CSS sẽ display:none ngay sau đó.
+    """
+    if layout[G.KHOI_MA_VACH].get("an"):
+        return {}
+    return {G.KHOI_MA_VACH: MV.anh_ma_vach(ctx["loan"]["sku"])}
+
+
 def _khoi(ctx, layout):
-    """17 khối theo đúng thứ tự BLOCKS — template lặp danh sách này nên DOM luôn đủ data-gcd."""
+    """18 khối theo đúng thứ tự BLOCKS — template lặp danh sách này nên DOM luôn đủ data-gcd."""
     noi = _noi_dung(ctx, layout)
+    anh = _anh(ctx, layout)
     ra, tran = [], []
     for b in G.BLOCKS:
         dong = [d for d in noi.get(b["key"], []) if d not in (None, "")]
         bac, qua = G.bac_co_chu(" ".join(dong), b["key"], layout)
         if qua:
             tran.append(b["ten"])
-        ra.append(dict(key=b["key"], ten=b["ten"], dong=dong, cls="gcd-co-%d" % bac,
-                       an=bool(layout[b["key"]].get("an"))))
+        ra.append(dict(key=b["key"], ten=b["ten"], dong=dong, anh=anh.get(b["key"], ""),
+                       cls="gcd-co-%d" % bac, an=bool(layout[b["key"]].get("an"))))
     return ra, tran
+
+
+def _vach_hep(ctx, layout):
+    """Bề rộng vạch hẹp (mm) của mã vạch trên tờ giấy THẬT, hoặc 0 nếu tờ này không in mã vạch.
+
+    Vì sao phải đo LÚC IN chứ không đo một lần lúc cấu hình: con số này phụ thuộc ĐỘ DÀI mã phiếu.
+    Mã KH2 hiện hành có 11 chữ số, nhưng README ghi rõ "giữ nguyên mã lịch sử" — phiếu cũ có thể
+    dài hơn, và mỗi 2 chữ số thêm vào làm vạch mỏng đi ~8%. Mỏng quá ngưỡng thì máy quét CÂM MÀ
+    KHÔNG BÁO GÌ, nhân viên chỉ thấy "quét không ra" và tưởng máy quét hỏng.
+    Nhân thêm _in.ty_le: thu nhỏ cả tờ giấy là thu nhỏ luôn mã vạch.
+    """
+    if layout[G.KHOI_MA_VACH].get("an"):
+        return 0.0
+    inn = {**G.IN_MAC_DINH, **(layout.get(G.IN_KEY) or {})}
+    rong = float(layout[G.KHOI_MA_VACH]["w"]) * float(inn["ty_le"]) / 100.0
+    return MV.vach_hep_mm(ctx["loan"]["sku"], rong, G.kho_giay(layout)[0])
 
 
 def _css_url(nen):
@@ -138,9 +172,16 @@ def _dung_trang(ctx, layout, nguon, nen=False, thuoc=False, may_tt=None, pdf=Fal
     p = ctx["loan"]
     # Hai đường in hiện hai con số khác nhau là lỗi chứng từ ⇒ nói thẳng trên màn hình khi lệch.
     lech_tien = (ct.get("tien") != "du_hien_tai" and p["original_principal"] != p["principal_balance"])
+    # Hai mức, xem ma_vach: dưới mức tối thiểu là dải ĐỎ phải sửa; nằm giữa là dòng XÁM nhắc quét thử.
+    vach = _vach_hep(ctx, layout)
     return render_template(
         "loan_print_gcd.html", title=p["sku"] + " · Giấy cầm đồ", loan=p, customer=ctx["customer"],
         khoi=khoi, tran=tran, mep=G.khoi_sat_mep(layout), nen=nen, thuoc=thuoc, nguon=nguon,
+        vach_mm=("%.3f" % vach).replace(".", ","),
+        vach_hep=bool(vach and vach < MV.VACH_HEP_TOI_THIEU_MM),
+        vach_thu=bool(vach and MV.VACH_HEP_TOI_THIEU_MM <= vach < MV.VACH_HEP_CAN_THU_MM),
+        vach_toi_thieu=str(MV.VACH_HEP_TOI_THIEU_MM).replace(".", ","),
+        vach_can_thu=str(MV.VACH_HEP_CAN_THU_MM).replace(".", ","),
         inn=inn, ct=ct, may_tt=may_tt, pdf=pdf,
         lech_tien=lech_tien, goc=_vnd(p["original_principal"]), du=_vnd(p["principal_balance"]),
         warning=ctx["warning"], css_url=css_url, css_tinh_url=css_tinh_url,

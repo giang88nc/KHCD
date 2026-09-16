@@ -45,6 +45,10 @@
 .gcd-nen{position:absolute;left:0;top:0;width:100%;height:100%;z-index:0;opacity:.85;
  background-image:url("img/GCD.jpg");background-size:100% 100%;background-repeat:no-repeat}
 .gcd-a5 .gcd-o{z-index:1}
+/* Ma vach phai NAM TREN anh nen o che do xem truoc, neu khong thi kiem khop o kieu gi? Day la lo
+   KHCD-rieng (anh nen chi co o day), khong phai hinh dang anh: hinh dang do gcd_layout.CSS_ANH
+   sinh ra de khop tung ky tu voi KHBL. Dung gop hai thu vao mot cho. */
+.gcd-a5 .gcd-anh{z-index:1}
 
 /* ---- Che do THUOC: do bang thuoc ke de bat may in dang THU NHO (Fit to page) ---- */
 .gcd-thuoc-vien{position:absolute;left:0;top:0;width:100%;height:100%;border:.3mm solid #c00;box-sizing:border-box;z-index:2}

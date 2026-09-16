@@ -1,13 +1,13 @@
 {% extends 'base.html' %}{% from '_parts.html' import csrf with context %}
 {% block page_assets %}
-<link rel="stylesheet" href="{{ url_for('static',filename='pawn-entry.css') }}?v=payment-desk-20260915o">
+<link rel="stylesheet" href="{{ url_for('static',filename='pawn-entry.css') }}?v=banking-layout-20260915p">
 <link rel="stylesheet" href="{{ url_for('static',filename='desk-actions.css') }}?v=20260915-action-glow">
 <link rel="stylesheet" href="{{ url_for('static',filename='desk-sessions.css') }}?v=20260915-operation-colors">
 <link rel="stylesheet" href="{{ url_for('static',filename='customer-popup.css') }}">
 <script src="{{ url_for('static',filename='customer-popup.js') }}?v=desk4" defer></script>
-<script src="{{ url_for('static',filename='pawn-entry.js') }}?v=payment-desk-20260915o" defer></script>
+<script src="{{ url_for('static',filename='pawn-entry.js') }}?v=banking-layout-20260915p" defer></script>
 <script src="{{ url_for('static',filename='desk-sessions.js') }}?v=20260915-operation-colors" defer></script>
-<link rel="stylesheet" href="{{ url_for('static',filename='desk-checkout.css') }}?v=20260915o">
+<link rel="stylesheet" href="{{ url_for('static',filename='desk-checkout.css') }}?v=20260915p">
 {% endblock %}
 {% block content %}
 <div id="desk-error" class="flash error" role="alert" {% if not error %}hidden{% endif %}>{{ error or '' }}</div>
@@ -55,9 +55,9 @@
  <section class="desk-section"><header><span>02</span><h2>Phương thức thanh toán</h2><small id="checkout-direction">CHI CHO KHÁCH</small></header>
  <div class="payment-options"><label><input type="radio" name="payment_method" id="pay-cash" value="cash" checked><span>Tiền mặt</span></label><label><input type="radio" name="payment_method" id="pay-bank" value="bank"><span>Chuyển khoản</span></label></div>
  <div class="desk-grid three"><label>Tiền mặt<input id="cash-input" name="cash_amount" inputmode="numeric" value="0"></label><label>Tiền chuyển khoản<input name="bank_amount" id="bank-amount" inputmode="numeric" value="0"></label><label>Scan QR chuyển khoản khách<div class="receipt-lookup"><input id="bank-qr-input" maxlength="8192" autocomplete="off" placeholder="Quét QR rồi Enter"><button type="button" id="scan-bank" class="btn" aria-label="Quét QR chuyển khoản">▦</button></div></label></div>
- <p id="payment-window" class="desk-hint"></p><button type="button" class="btn" id="make-outgoing-qr" hidden title="Tạo QR chuyển khoản khách">▦ QR</button><p id="bank-status" class="desk-hint" role="status"></p>
- <div id="bank-fields" hidden><div class="session-qr-corner"><iframe id="pawn-session-qr" class="pawn-photo-frame" src="{{ url_for('customer_popup.photos',group='qr') }}" title="QR chuyển khoản phiên giao dịch" allow="camera 'self'"></iframe></div><div class="desk-grid three"><label>Ngân hàng<input name="bank_name" maxlength="120" placeholder="Ngân hàng nhận"></label><label>Số tài khoản<input name="bank_account" maxlength="120" placeholder="Số tài khoản"></label><label>Tên người nhận<input name="bank_holder" maxlength="120" placeholder="Đối chiếu tên chủ tài khoản"></label></div></div>
- <div class="desk-grid three payment-note"><label>Nội dung<input name="bank_reference" value="THANH TOÁN TIỀN VÀNG1" maxlength="120"></label></div></section>
+ <p id="payment-window" class="desk-hint"></p>
+ <div id="bank-fields"><div class="bank-inputs"><input name="bank_name" maxlength="120" placeholder="Ngân hàng" aria-label="Ngân hàng"><input name="bank_account" maxlength="120" placeholder="Số tài khoản" aria-label="Số tài khoản"><input name="bank_holder" maxlength="120" placeholder="Tên tài khoản" aria-label="Tên tài khoản"></div><div class="session-qr-corner"><iframe id="pawn-session-qr" class="pawn-photo-frame" src="{{ url_for('customer_popup.photos',group='qr') }}" title="QR chuyển khoản phiên giao dịch" allow="camera 'self'"></iframe></div></div>
+ <div class="payment-reference-row"><input name="bank_reference" value="" readonly maxlength="120" placeholder="Nội dung tạo theo phiên giao dịch" aria-label="Nội dung chuyển khoản"><button type="button" class="btn" id="make-outgoing-qr" disabled title="Tạo QR chuyển khoản khách">▦ QR</button></div></section>
 <footer class="checkout-footer"><p id="desk-save-status" role="status">Kiểm tra thông tin trước khi xác nhận.</p><p id="cancel-window" role="status"></p><div><button type="button" class="btn btn-danger" id="clear-draft">XÓA</button><button class="btn btn-primary" id="save-pawn" {{ 'disabled' if readonly }}>✓ Xác nhận</button></div></footer></aside>
 </form>
 </div>
