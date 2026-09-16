@@ -7,7 +7,8 @@
 **Dự án CẦM ĐỒ Python đặt tại `D:\PYTHON\KHCD`. Mọi phát triển, khởi động, cấu hình và sao lưu tệp dự án đều thực hiện tại đây.** Không tạo hoặc vận hành thêm bản dự án tại `Documents\ChatGPT`. Bản trước khi chuyển chỉ giữ làm bản sao lưu tại `backups\source-before-relocation-20260914`, không dùng để chạy ứng dụng.
 
 - Mã nguồn: `khcd`; Python riêng: `.venv`; cấu hình: `.env`; bản sao lưu SQL: `backups`.
-- Bật ứng dụng bằng `D:\PYTHON\KHCD\TURN_ON_KHCD.vbs` hoặc `scripts\start.ps1`; tắt bằng `scripts\stop.ps1`.
+- Vận hành bằng 3 tệp ở gốc dự án, giống nếp KHJ/KHBL (16/09/2026): **`TURN_ON_KHCD.bat`** · **`TURN_OFF_KHCD.bat`** · **`RESET_KHCD.bat`** (sửa tệp `.py` thì RESET; sửa `.html/.css/.js` chỉ cần F5). Gọi qua PowerShell: `cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat`. `TURN_ON_KHCD.vbs` nay chỉ là vỏ chạy ẩn của `TURN_ON_KHCD.bat`. Logic bật/tắt vẫn nằm nguyên ở `scripts\start.ps1` / `scripts\stop.ps1` — 3 tệp `.bat` chỉ thêm: chờ dịch vụ MySQL80, kiểm tác vụ Windows có thật hay không (không có thì bật tách qua WMI để tiến trình không chết theo app gọi lệnh), và **tự đo lại sức khỏe ở CẢ cổng 8200 lẫn 8201** bằng `scripts\kiem_khcd.ps1` (tệp CHỈ ĐỌC; `-Viec chu-cong` cho biết ai đang giữ cổng). Lý do phải đo cả hai: Caddy vẫn giữ 8200 khi backend đã chết — lúc đó mọi trang trả 502 mà nhìn cổng thì tưởng vẫn tốt.
+- Từ 16/09/2026 KHCD nằm trong chuỗi khởi động toàn hệ: `D:\PYTHON\KHJ\KHOI_DONG_TOAN_HE_THONG.bat` bước `[G]` gọi `TURN_ON_KHCD.bat`, `RESET_TOAN_HE_THONG.bat` bước `[2b]` gọi `TURN_OFF_KHCD.bat`, và bảng kiểm sức khỏe có thêm 3 mục cổng 8200 / 8201 / 18202. Trước đó KHCD không có đường lên nào khi khởi động lại máy (tác vụ Windows không có trigger) mà bảng kiểm vẫn báo "TOÀN HỆ THỐNG OK".
 - Tác vụ Windows `KHCD Web Host` chạy `D:\PYTHON\KHCD\scripts\host.ps1`, giữ cơ chế tự phục hồi hiện có. Caddy HTTPS 8200, Waitress nội bộ 8201; dịch vụ khách KHBL nội bộ 18202 dùng khóa cầu nối tại `instance\customer-bridge.key` của dự án này.
 - Chứng chỉ và khóa HTTPS giữ nguyên trong `instance\caddy-data`; log Caddy cũng nằm trong `instance` tại ổ D.
 - **Kho ảnh phiếu: `D:\PYTHON\KHCD\media\pawn`**, cấu hình `LEGACY_PAWN_IMAGE_ROOT`. Giải nén ảnh backup trực tiếp vào đây, giữ tên tệp, tránh lồng `pawn\pawn`. Đã chép 74 tệp đang có từ kho PHP cũ để bảo toàn ảnh; backup đầy đủ của người dùng cần bổ sung vào kho mới này. Ảnh BLOB tiếp tục nằm trong MySQL như trước. Không xóa kho PHP dùng chung với hệ thống cũ.
@@ -97,15 +98,34 @@ Trước đưa UPSERT vào vận hành đã chạy backup PMV COPY_ONLY và VERI
 
 ## Chạy ứng dụng
 
-Máy hiện tại đã có môi trường `.venv` và cấu hình `.env`. Nhấp đúp `TURN_ON_KHCD.vbs` để chạy ẩn, hoặc:
+Máy hiện tại đã có môi trường `.venv` và cấu hình `.env`. Nhấp đúp `TURN_ON_KHCD.vbs` để chạy ẩn, hoặc gọi 3 tệp vận hành (đường dùng hằng ngày — chúng gọi lại chính `start.ps1`/`stop.ps1` bên dưới):
+
+```powershell
+cmd /c D:\PYTHON\KHCD\TURN_ON_KHCD.bat
+```
+
+Tắt riêng ứng dụng này (đặt cờ `instance\host.stop` + kết thúc tác vụ trước, rồi mới tắt tiến trình, cuối cùng đo lại 3 cổng và nói rõ **ai** còn giữ cổng):
+
+```powershell
+cmd /c D:\PYTHON\KHCD\TURN_OFF_KHCD.bat
+```
+
+Bật lại sau khi sửa tệp `.py` — kiểm đủ điều kiện **trước** khi tắt, và tắt không sạch thì **không** bật lại (tiến trình cũ còn giữ cổng 8201 sẽ khiến `start.ps1` bỏ qua, mã `.py` cũ chạy tiếp mà không ai báo lỗi):
+
+```powershell
+cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat
+```
+
+Xem ai đang giữ cổng / đo sức khỏe mà không đụng gì (chỉ đọc):
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\kiem_khcd.ps1 -Viec chu-cong
+```
+
+Hai script gốc vẫn dùng trực tiếp được khi cần xử lý sự cố:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
-```
-
-Tắt riêng ứng dụng này:
-
-```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
 ```
 
@@ -382,6 +402,32 @@ Kiểm tra bản thu gọn: 98 kiểm thử KHCD và 31 kiểm thử KHBL đạt
   `.venv\Scripts\python.exe -m pytest tests/test_gcd_print.py -q`
   52 bài thuần hàm chạy không cần CSDL; 13 bài web/CSDL tự bỏ qua khi chưa đặt `KHCD_TEST_ENV` (conftest tạo CSDL nháp rồi xoá). Bài kiểm soi **HTML đã render** (so tập `data-gcd` với `BLOCKS`) chứ không chỉ so chuỗi CSS — quên một `data-gcd` trong template thì chuỗi CSS vẫn khớp, test vẫn đạt, mà khối đó **không bao giờ được định vị** trên bản in.
 
+### MÃ VẠCH SỐ BIÊN NHẬN TRÊN GIẤY CẦM ĐỒ — 16/09/2026
+GĐ yêu cầu: *"thêm mã Barcode trên SỐ biên nhận"*. Khối thứ **18** của mẫu in GCD, key **`ma_phieu_vach`** ("Mã vạch Số biên nhận"), đứng ngay **TRÊN** ô `ma_phieu` (ô "SỐ:"). Kéo/căn ở trang cấu hình KHBL như 17 khối kia; KHCD chỉ ĐỌC và in ra giấy.
+
+- **Thuật toán là BẢN SAO, không viết mới** — `khcd/ma_vach.py`, chép nguyên văn từ `D:\PYTHON\KHBL\apps\pos\ma_vach.py` (hằng `CODE39` · `so_ma_vach()` · `png_code39()`). Đây chính là thuật toán đang in mã vạch **Giấy đảm bảo** và **đã quét được ngoài thực tế**; một Code 39 tự chế sai tỷ lệ vạch rộng/hẹp vẫn "nhìn như mã vạch" mà máy quét không đọc nổi, và lỗi đó chỉ lộ ra khi khách đã cầm tờ giấy về nhà.
+  - Vùng sao chép nằm giữa hai dòng mốc `BẮT ĐẦU/HẾT VÙNG SAO CHÉP`; lớp riêng của KHCD nằm **ngoài** vùng đó. **Sửa thuật toán = sửa bên KHBL trước rồi chép lại nguyên vùng**, không sửa tại KHCD.
+  - Khoá lại bằng **sha256** (`ma_vach.van_tay()`), đúng nếp `apps/common/anh_cccd.py` ↔ `smoke_cccd` của KHJ. ⚠ KHBL lưu **LF**, KHCD lưu **CRLF** ⇒ bài kiểm đọc cả hai ở **chế độ văn bản** rồi mới băm: cái buộc phải giống nhau là **ký tự**, không phải byte thô.
+- **Ảnh PNG data URI, KHÔNG phải div/CSS**: trình duyệt co vạch lẻ thành pixel mờ khi in, vạch hẹp 0,17 mm rơi vào nửa pixel là xám nhoè và máy quét chịu. Ảnh 1-bit thì mỗi vạch là số nguyên pixel, in ra **đen đậm**. ⚠ Và **không được vẽ bằng `background`**: bản in GCD cố ý không có `print-color-adjust` nên mọi thứ vẽ bằng background **biến mất trên giấy** — thẻ `<img>` là nội dung thật, luôn in ra. Data URI chứ không phải tệp rời vì đường in phía máy chủ nạp trang qua `file:///` trong thư mục tạm.
+- **Nội dung mã = phần CHỮ SỐ của mã phiếu, KHÔNG rút gọn** (`KH22609000123` → `22609000123`). Tiền tố chữ là hằng nên bỏ đi vẫn tra ngược được đúng một phiếu. ⚠ **Cố ý KHÔNG dùng `_ma_gdb()`** (hàm rút 9 số của Giấy đảm bảo): `KH22609000123` và `KH22609001123` đều rút thành `226090123` ⇒ **hai phiếu khác nhau cùng một mã vạch**, quét nhầm là trả nhầm hàng. Bài kiểm `test_khong_rut_gon_9_so` giữ nguyên ví dụ này.
+- **Bề rộng vạch hẹp là con số quyết định quét được hay không**, và nó **đổi theo độ dài mã phiếu** (README ghi rõ "giữ nguyên mã lịch sử" — phiếu cũ có thể dài hơn 11 số). Mã 11 số chiếm **227 mô-đun** (207 mô-đun vạch + 2×10 quiet-zone dựng sẵn **trong ảnh**); khối rộng 18,8% trên tờ 210 mm ⇒ vạch hẹp **≈ 0,174 mm = 7 mil**. Vì vậy trang xem trước **đo theo từng phiếu** (`ma_vach.vach_hep_mm`, có nhân `_in.ty_le`) và báo **hai mức, cố ý không gộp**:
+
+  | Vạch hẹp | Trang in | Vì sao |
+  |---|---|---|
+  | ≥ 0,19 mm | im lặng | mức thoải mái của máy quét cầm tay |
+  | 0,15 – 0,19 mm | dải **XÁM** một dòng | vẫn thường đọc được nhưng **phải quét thử tờ in đầu tiên** — đây là trạng thái của bố cục mặc định hôm nay |
+  | < 0,15 mm | dải **ĐỎ** | máy quét quầy chịu thua; ai đó vừa bóp nhầm khối hoặc thu nhỏ tỷ lệ in |
+
+  Kêu đỏ trên đường chạy hằng ngày thì vài hôm là **không ai đọc dải cảnh báo nào nữa**, kể cả dải báo lệch tiền — đó là lý do tách hai mức chứ không phải một.
+- ⚠ **BỀ RỘNG 18,8% LÀ TRẦN CỨNG CỦA TỜ GIẤY IN SẴN**, không phải lựa chọn thẩm mỹ: cả nửa phải tờ giấy không có dải trống nào quá ~40 mm. Khối đặt ở dải bên phải chữ đỏ "KIM HẠNH II" (hết ở 77,1%), dưới dòng "DNTN KINH DOANH VÀNG & CẦM ĐỒ", trên dòng địa chỉ. **Quét không ra thì ĐỪNG cắt bớt chữ số**: nới ô Rộng % lấn sang trái, hoặc kéo khối xuống dải y 23–30,5% (bên phải tiêu đề "BIÊN NHẬN CẦM ĐỒ"), hoặc đặt tờ in sẵn có chừa chỗ cho mã vạch.
+- **Không làm khối "số đọc được" riêng** như Giấy đảm bảo: bên GĐB mã vạch mang mã **rút gọn** khác với mã in trên giấy nên bắt buộc in kèm số; ở đây khối `ma_phieu` ngay bên dưới **đã in nguyên mã** rồi, thêm một dòng số nữa là in trùng trên tờ giấy vốn đã chật.
+- **Hai bên khớp nhau — ba điểm bị khoá bằng bài kiểm**: (1) khối `ma_phieu_vach` phải **cùng key, cùng thứ tự, cùng số đo** với `apps/pos/gcd_layout.py`; (2) chuỗi **`CSS_ANH`** (`object-fit:fill` + `image-rendering:pixelated`) phải giống **từng ký tự** — nó quyết định hình dáng ảnh trên giấy, và phải do `css()` **sinh ra** chứ không nằm trong `static/gcd-print.css` (tệp static là của riêng từng dự án, để ở đó là đúng kiểu lệch đã làm **chữ lệch 9 mm** lượt trước); (3) markup là thẻ `<img data-gcd=…>` **không bọc `<div>`**, y như `templates/pos/_gcd_a5.html` bên KHBL. Riêng `.gcd-a5 .gcd-anh{z-index:1}` trong `static/gcd-print.css` là **lo riêng của KHCD** (cho mã vạch nổi trên ảnh nền lúc xem trước), không phải hình dáng ảnh — đừng gộp hai thứ.
+- **Không đường nào được làm mất tờ phiếu**: khối TẮT thì không vẽ ảnh; mã không có chữ số nào → trả `''` để template bỏ khối (**không** in mã vạch của số 0 lên chứng từ); lỗi dựng ảnh (thiếu Pillow, hết bộ nhớ) cũng nuốt tại chỗ — **mất mã vạch còn hơn mất tờ phiếu**, cùng nguyên tắc với `gcd_layout`.
+- **Bài kiểm**: `tests/test_gcd_ma_vach.py`. Chạy **chỉ đích danh tệp**, không chạy cả bộ, không discover:
+  `.venv\Scripts\python.exe -m pytest tests/test_gcd_ma_vach.py -q`
+  **36 bài chạy không cần CSDL**, 10 bài web tự bỏ qua khi chưa đặt `KHCD_TEST_ENV`. Tệp có **bộ GIẢI MÃ Code 39 riêng** đọc ngược ảnh PNG ra chuỗi số: so mã nguồn thôi thì chưa đủ — chép đúng chữ mà Pillow đổi hành vi thì mã vẫn câm. Nhóm bài dựng trang bằng Jinja trần với dữ liệu giả (không đụng CSDL, không đụng máy in) và **quét lại ảnh lấy từ HTML đã render**, vì view hoàn toàn có thể vẽ mã vạch của một phiếu khác mà bài kiểm so chuỗi vẫn xanh.
+- ⚠ **CHƯA QUÉT THỬ BẰNG MÁY QUÉT THẬT** — đây là việc duy nhất còn treo của mục này, phải làm ở tờ in đầu tiên. Cũng chưa in thử ra máy in (theo yêu cầu). `len(G.BLOCKS)` đổi 17 → 18 nên `tests/test_gcd_print.py` đã cập nhật con số đó.
+
 ### IN THEO MÁY IN ĐÃ LƯU + ĐƯỜNG RƠI VỀ TRÌNH DUYỆT — 15/09/2026
 GĐ chốt: *"tìm → chọn → lưu máy in vào cấu hình để sử dụng → nếu không gọi được máy in đó → thì trình duyệt tự điều hướng chọn máy in"*. **Tìm · chọn · lưu** làm ở trang cấu hình KHBL (người ghi duy nhất); **dùng** là `khcd/gcd_may_in.py` (KHCD chỉ ĐỌC, không bao giờ ghi sang `khj_bl`).
 
@@ -428,3 +474,63 @@ GĐ chốt: *"tìm → chọn → lưu máy in vào cấu hình để sử dụn
 - Quét QR khách qua bộ đọc KHBL; tạo VietQR offline từ mã NH/BIN, số TK, tên, số tiền CK và nội dung chứa mã phiếu. banking_qr.py tái sử dụng thuật toán KHBL, giữ nguyên số tiền phiên (không tự làm tròn QR). QR chỉ được chuẩn bị, không có xác nhận ngân hàng đã chuyển tiền.
 - LƯU QR đổi cơ cấu CASH/BANK trong cd_payments cùng log, tổng chi không đổi. Lưu QR PNG/Base64 và dữ liệu banking tại bank_snapshot, transfer_status=PREPARED. Trước/sau đổi thanh toán cùng người/thời gian/request_key lưu ở cd_loan_logs.terms_json.payment_changes; không tạo thêm nghiệp vụ/gốc/lãi. Khóa loan, kiểm tra phiên + thời hạn + payment_version trong transaction, idempotency khi phản hồi thất lạc. Hủy phiên đảo đúng phương thức hiện tại.
 - Skill xác nhận chuyển khoản thực tế vào/ra theo nội dung/mã phiếu chưa triển khai, làm ở giai đoạn sau.
+
+### Ảnh cam kết Báo mất — 16/09/2026
+- Popup Báo mất có ô ảnh lớn, Chụp/Chọn/Bỏ ảnh và ghi chú; hướng dẫn: Viết cam kết tài sản và báo mất giấy; chụp hình CCCD + giấy cam kết.
+- Ảnh gắn RIÊNG từng cd_loan_logs operation_id=7; terms_json.lost_photo lưu tên file/hash/kích thước. File JPEG chuẩn hóa trong media/loans, tên ngẫu nhiên. Không gộp vào ảnh tài sản hay ghi đè hồ sơ CCCD khách.
+- Giới hạn 15MB/25MP, giữ tối đa cạnh 2400px, loại EXIF khi chuẩn hóa. Route /camdo/phien/<log_id>/cam-ket yêu cầu đăng nhập, xác minh đường dẫn và checksum. Xem lại qua nhật ký popup và chi tiết biên nhận.
+- Hủy phiên vẫn giữ ảnh ở phiên Báo mất gốc. File không đọc được làm rollback phiên; kiểm thử lưu, đọc lại, hủy giữ ảnh và rollback ảnh lỗi đạt.
+
+### Báo mất có thu lãi và khóa PassCode — 16/09/2026
+- Thay thế quy tắc Báo mất không thu: thu lãi từ mốc lãi đã chốt tới ngày báo mất, tối thiểu 1 ngày / 5.000đ; giữ nguyên gốc, cập nhật mốc lãi sau thu.
+- Mô tả tài sản, xuất trình CCCD/VNeID, đối chiếu và ký cam kết là thủ tục trên giấy. Popup chỉ giữ ảnh cam kết + ghi chú; không thêm các ô nhập hoặc kiểm tra bắt buộc cho thủ tục giấy. Ảnh lưu riêng phiên Báo mất. Dữ liệu hồ sơ đã lưu trước đó được giữ nguyên.
+- receipt_lost mà chưa có lost_unlocked được khóa tất cả giao dịch/hủy phiên ở server; chỉ xem/in/lịch sử. Áp dụng cả phiếu báo mất cũ chưa mở khóa. Không đổi tiền hoặc dữ liệu lịch sử nguồn.
+- Mở khóa bằng PassCode băm của tài khoản đăng nhập từ auth_user dùng chung, không dùng mật khẩu đăng nhập thay PassCode, không tạo mã mới. Có lý do, giới hạn 5 lần sai/5 phút theo tài khoản trên phiếu; không lưu PassCode gốc. Ghi nghiệp vụ 8 Mở khóa báo mất, không thu/chi; giữ receipt_lost và hồ sơ để truy vết. Nếu hủy chính phiên mở khóa sẽ trở về trạng thái bị khóa.
+- 39 kiểm thử sổ mới đạt, gồm tính lãi Báo mất, chặn giao dịch/hủy, PassCode sai/đúng, mở khóa idempotent và đối soát sau mở.
+
+- Điều chỉnh theo xác nhận 16/09/2026: đã gỡ các trường thủ tục giấy và yêu cầu tương ứng ở server; kiểm thử báo mất không có các trường này và luồng lãi/khóa/mở khóa đều đạt.
+
+### Xem giấy báo mất tại bàn lập phiếu — 16/09/2026
+- Dưới Lịch sử phiếu có nút Giấy báo mất, chỉ hiện khi biên nhận có phiên Báo mất. Popup chia tab theo phiên, mới nhất trước; hiển thị ảnh cam kết và ghi chú đã lưu, thông báo rõ khi thiếu ảnh/nội dung. Không tự đọc hoặc tạo nội dung từ ảnh. Giữ đường ảnh có xác thực và dữ liệu riêng từng phiên.
+
+### Điều chỉnh Báo mất / Mở khóa — 16/09/2026
+- Thay thế quy tắc chặn hủy khi báo mất: phiên Báo mất mới nhất được XÓA trong 5 phút như các phiên khác; ghi bút toán đảo, hoàn đúng tiền đã thu và khôi phục trạng thái/mốc lãi trước phiên. Ảnh và lịch sử vẫn giữ để đối soát. Hết 5 phút không cho hủy.
+- Mở khóa là thông báo kiểm soát, vẫn ghi log operation_id=8 để truy vết nhưng không tạo thanh toán, không đổi interest_from/lãi suất/ngày hẹn hoặc nghiệp vụ tài chính gần nhất. Không tính vào số phiên giao dịch và danh sách giao dịch chung; vẫn xuất hiện trong nhật ký riêng của phiếu. Không cho XÓA thông báo mở khóa như phiên tài chính.
+- Ví dụ Báo mất ngày 01/09 đã thu lãi tới 01/09, mở khóa 16/09: nghiệp vụ tiếp theo ngày 16/09 tính 15 ngày từ 01/09; không tính từ giờ mở khóa. Bàn thanh toán hiển thị phiên tài chính gần nhất, bỏ qua thông báo mở khóa.
+
+### XÓA trực tiếp phiên trong 5 phút — 16/09/2026
+- Thay thế cơ chế ghi bút toán đảo: mọi nghiệp vụ mới, kể cả Báo mất và thông báo Mở khóa, được xóa khi là phiên cuối cùng, chưa đủ 300 giây, còn khớp snapshot. Không xóa phiên nhập từ nguồn cũ hay dòng hủy cũ.
+- Transaction khóa biên nhận, kiểm tra fingerprint/thời hạn, phục hồi gốc, mốc lãi, lãi suất, ngày hẹn, trạng thái trước phiên; DELETE cd_payments của phiên rồi DELETE cd_loan_logs. Không ghi log hủy thay thế. Phải hoàn trả tiền/tài sản thực tế trước xác nhận.
+- Xóa Cầm mới giữ biên nhận trạng thái CANCELLED, gốc 0, giữ mã tránh cấp trùng; không còn log/thanh toán của phiên. Xóa Mở khóa khôi phục khóa. Tệp ảnh trên đĩa không tự dọn trong transaction; liên kết ảnh/QR của log đã xóa không còn truy cập được. Không xóa hàng loạt lịch sử hiện có.
+
+### Popup dùng chung và xóa toàn bộ CẦM MỚI — 16/09/2026
+- KHDialog.confirm({title, danger}) dùng hai nút Có/Không, không ô nhập hay checkbox; KHDialog.notify({title, message}) dùng cho thông báo. Thành phần ui-dialog.js/css được nạp từ base.html, hỗ trợ Escape, focus, hàng đợi popup, nội dung textContent.
+- Xóa phiên gửi confirmed=yes; vẫn kiểm tra CSRF, phiên mới nhất, fingerprint và hạn 5 phút tại server.
+- Thay thế quy tắc giữ biên nhận CANCELLED: xóa phiên Cầm mới duy nhất của phiếu mới sẽ DELETE cd_payments, cd_loan_logs, cd_loan_items, cd_loans trong cùng transaction. Không giữ bản ghi SQL của phiếu, không ghi lịch sử hủy; giao diện về phiếu trống. Không áp dụng xóa toàn bộ cho phiếu nguồn cũ.
+- Xóa các nghiệp vụ tiếp theo vẫn khôi phục phiếu trước phiên. Khách hàng KK dùng chung không bị xóa. Tệp ảnh trên đĩa không dọn trong transaction SQL.
+
+### Báo mất bắt buộc ảnh và tải mẫu Word — 16/09/2026
+- Popup dùng hướng dẫn: Viết cam kết báo mất giấy + hình CCCD. XÁC NHẬN chỉ bật khi đã tính phiên và có ảnh chụp/chọn; server bắt buộc ảnh hợp lệ, giữ giới hạn ảnh hiện hành. Thiếu ảnh không ghi phiên. Không thêm trường thủ tục giấy.
+- Nút tải Giấy cam kết nằm bên phải dòng Chụp/Chọn. File khcd/resources/giay-cam-ket-bao-mat-kim-hanh-2.docx là bản sao nguyên vẹn file người dùng cung cấp. Route /camdo/mau/giay-cam-ket-bao-mat yêu cầu đăng nhập, trả attachment Word.
+
+### Màu cột biên nhận và lọc phiên — 16/09/2026
+- Toàn bộ desk-checkout đổi màu nền/viền/header/footer theo watermark của trạng thái thực tế.
+- Popup danh sách có Trạng thái (nghiệp vụ phiên) trước Khách hàng, gửi kind tới API sẵn có. Phiếu đã chuộc/thanh lý vẫn xuất hiện theo ngày giao dịch, không lọc riêng phiếu ACTIVE. Ngày mặc định tự cập nhật khi qua ngày mới nếu người dùng chưa chọn khoảng khác; Hôm nay đặt lại tất cả bộ lọc.
+- Kiểm tra trực tiếp 16/09: SQL mới và API hôm nay đều có Chuộc đồ lúc 14:33:05. Không phát hiện API loại bỏ phiên này. Danh sách chỉ đọc SQL mới, không trộn lịch sử pawn_log chưa chuyển đổi.
+
+### Thanh lý: chọn giá trị thu — 16/09/2026
+- Popup Thông tin phiên có radio: tiền gốc (mặc định), gốc + lãi, giá trị thực tế. Tổng thu bằng đúng lựa chọn; ẩn ô thêm/bớt nhập tay riêng nghiệp vụ Thanh lý.
+- Giá trị thực tế = tổng net_weight × giá hiện tại gold_price.value theo gold_code và cùng đơn vị, không lấy đơn giá lịch sử trên phiếu, không nhân 70%. Thiếu món/giá/trọng lượng, món KHAC hoặc khác đơn vị sẽ chặn riêng lựa chọn thực tế. Giá được tính lại khi xác nhận; tổng thay đổi thì yêu cầu tính lại.
+- Thanh lý đưa dư gốc về 0. Chọn gốc hoặc thực tế không thu lãi riêng; chọn gốc+lãi dùng quy tắc lãi hiện hành. Chênh lệch giá trị thực tế với gốc lưu extra_amount/discount_amount để giữ đối soát dòng tiền. terms_json.liquidation của log lưu lựa chọn, giá, trọng lượng từng món và tổng. Không đổi phiên Thanh lý cũ.
+
+### Nguồn giá vàng duy nhất KHBL — 16/09/2026
+- Ghi đè quy tắc giá ở các mục trước: mọi định giá mới và thanh lý đọc trực tiếp khj_bl.gold_prices.buy, is_current=1, chọn id mới nhất mỗi gold_type như KHBL. Không fallback sang khj_cd.gold_price.value. Bảng cũ chỉ còn phục vụ nhãn/đơn vị hồ sơ nguồn cũ.
+- Mapping 61→610, 99→9999, 98→980, sjc→SJC (đồng/chỉ); bk→BK, vt→VT (đồng/gram). KHAC không phải vàng, giữ định giá nhập tay. Thiếu giá hiện tại thì không cho chốt món vàng hay thanh lý thực tế.
+- Form cập nhật giá khi chọn loại vàng, quay lại cửa sổ và mỗi 60 giây khi đang nhập. API /camdo/gia-vang no-store. Server đọc lại giá, chặn giá gửi lên cũ/sửa tay; báo cập nhật trước khi xác nhận. Hồ sơ đã chốt giữ đơn giá lịch sử; thanh lý thực tế đọc giá KHBL hiện tại.
+- Kiểm thử dùng GOLD_PRICE_DB trỏ CSDL khj_cd_test_* riêng; không ghi vào gold_prices thật của KHBL.
+
+### Tối ưu tải bàn lập phiếu — 16/09/2026
+- Tài nguyên popup CSS/JS/font đọc trực tiếp từ D:/PYTHON/KHBL/static (config KHBL_STATIC_ROOT), danh sách cho phép giống KHBL và kiểm tra đường dẫn. Giữ auth, CSP; nếu không có file cục bộ thì dùng bridge cũ. Không sao chép bộ logic khách hàng.
+- URL CSS/JS có phiên bản mtime_ns; cache private 1 ngày khi phiên bản khớp. Tài nguyên không version (font qua CSS) revalidate bằng ETag/Last-Modified, trả 304. HTML/API/ảnh khách tiếp tục no-store, lỗi và chuyển đăng nhập không cache.
+- Mở phiếu trống không gọi danh sách khách; vẫn lấy khách được chọn và tìm kiếm theo API khi nhập. Bỏ truy vấn recent và safes không được template sử dụng. Giữ thống kê ngày, nhân viên, giá vàng trực tiếp.
+- Đo Chrome + log Caddy: trước main 843ms, popup assets 48 request/697660 bytes, hoàn tất sau 5.97s. Lượt đầu sau sửa main 98.9ms, 24 asset request (12 trả 304),174415 bytes, hoàn tất sau 1.46s. Đây là thời gian HTTP, không phải chỉ số FPS. 55 kiểm thử đạt; kiểm tra lại 4 iframe và không thấy lỗi JS.
