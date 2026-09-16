@@ -1,14 +1,14 @@
-"""Native loan ledger: four tables, immutable postings and latest-session reversal."""
+"""Native loan ledger with a five-minute deletion window for the latest session."""
 import json, uuid, hashlib, secrets, base64
 from pathlib import Path
 from datetime import datetime, timedelta
 from decimal import Decimal
-from flask import Blueprint, current_app, request, session, url_for, render_template, abort, Response
+from flask import Blueprint, current_app, request, session, url_for, render_template, abort, Response, send_file
 from . import db, pawn_desk as desk, customer_master as master, loan_conversion as C
 from .domain import BusinessError, now, today, parse_date, decimal, money, date_range
 
 bp=Blueprint('live',__name__,url_prefix='/camdo')
-OPS={0:'Hủy phiên',1:'Cầm mới',2:'Cầm thêm',3:'Trả bớt',4:'Gia hạn',5:'Chuộc đồ',6:'Thanh lý',7:'Báo mất'}
+OPS={0:'Hủy phiên',1:'Cầm mới',2:'Cầm thêm',3:'Trả bớt',4:'Gia hạn',5:'Chuộc đồ',6:'Thanh lý',7:'Báo mất',8:'Mở khóa báo mất'}
 
 def enabled():return str(current_app.config.get('CD_LIVE','0'))=='1'
 def unpack(raw):return json.loads(raw) if isinstance(raw,str) else (raw or {})
@@ -36,12 +36,14 @@ def snapshot(p):
     return result
 
 def latest(lid):return db.one('SELECT * FROM cd_loan_logs WHERE loan_id=%s ORDER BY id DESC LIMIT 1',(lid,))
+def lost_locked(p):return bool(p['receipt_lost'] and not unpack(p['terms_json']).get('lost_unlocked'))
+
 def cancellation(p):
-    l=latest(p['id']);reason='Chỉ hủy phiên mới nhất trong 5 phút; phiên nhập từ nguồn cũ không được hủy.'
+    l=latest(p['id']);reason='Chỉ xóa phiên mới nhất trong 5 phút; phiên nhập từ nguồn cũ không được xóa.'
     out=dict(allowed=False,remaining_seconds=0,reason=reason,cash_return='0',bank_return='0')
     if not l or not l.get('request_key') or l['operation_id']==0:return out
     age=(now()-l['happened_at']).total_seconds()
-    if not 0<=age<300:return dict(out,reason='Đã hết thời hạn hủy 5 phút.')
+    if not 0<=age<300:return dict(out,reason='Đã hết thời hạn xóa 5 phút.')
     terms=unpack(l['terms_json'])
     if 'before' not in terms or 'after' not in terms:return out
     if C.digest(C.normalized(snapshot(p)))!=C.digest(C.normalized(terms['after'])):return dict(out,reason='Phiếu đã thay đổi sau phiên; cần đối soát.')
@@ -146,11 +148,26 @@ def create(data,files):
             if year_lock:db.one('SELECT RELEASE_LOCK(%s)',(year_lock,))
         finally:db.one('SELECT RELEASE_LOCK(%s)',(lock_name,))
 
+def liquidation_values(p,accrued):
+    from .services import gold_options
+    prices={str(g['id']):g for g in gold_options()};lines=[];total=Decimal(0);errors=[]
+    items=db.all('SELECT line_no,gold_code,description,net_weight,unit FROM cd_loan_items WHERE loan_id=%s ORDER BY line_no',(p['id'],))
+    if not items:errors.append('Phiếu chưa có chi tiết món hàng.')
+    for item in items:
+        gold=prices.get(str(item['gold_code']));weight=Decimal(str(item['net_weight'] or 0))
+        if not gold or str(item['gold_code'])=='KHAC' or not gold.get('price') or weight<=0:
+            errors.append('Món '+str(item['line_no'])+': thiếu loại vàng, trọng lượng hoặc giá thâu.');continue
+        if item['unit']!=gold['unit']:
+            errors.append('Món '+str(item['line_no'])+': đơn vị trọng lượng khác đơn vị giá thâu.');continue
+        price=decimal(gold['price'],'Giá thâu');value=money(weight*price);total+=value
+        lines.append(dict(line=item['line_no'],gold=item['gold_code'],description=item['description'],weight=str(weight),unit=item['unit'],price=str(price),value=str(value),price_id=gold.get('price_id'),effective_at=gold.get('effective_at')))
+    return dict(principal=str(p['principal_balance']),principal_interest=str(p['principal_balance']+max(Decimal(5000),accrued)),actual=str(total) if not errors else None,lines=lines,errors=errors,price_source='khj_bl.gold_prices.buy')
+
 def estimate(p,operation,data):
     if p['loan_state']!='ACTIVE':raise BusinessError('Phiếu đã đóng; chỉ xem hoặc hủy phiên cuối còn thời hạn.')
     op=int(operation)
     if op not in (2,3,4,5,6,7):raise BusinessError('Nghiệp vụ không hợp lệ.')
-    if p['receipt_lost'] and op in (5,6) and data.get('lost_verified')!='yes':raise BusinessError('Phiếu báo mất: xác nhận đã kiểm tra giấy tờ trước khi giao tài sản.')
+    if lost_locked(p):raise BusinessError('Phiếu báo mất đang KHÓA. Cần PassCode mở lại trước khi giao dịch.')
     balance=p['principal_balance'];start=parse_date(p['interest_from']);effective=parse_date(data.get('transaction_date') or today()) if op in (2,3,4) else today()
     if effective<start:raise BusinessError('Ngày giao dịch không được trước mốc lãi đã chốt.')
     if effective>today()+timedelta(days=365):raise BusinessError('Ngày tính lãi tối đa 365 ngày từ hôm nay.')
@@ -166,7 +183,7 @@ def estimate(p,operation,data):
     if op==3:
         change=-integer(data.get('amount'),'Tiền trả bớt',1)
         if -change>=balance:raise BusinessError('Trả bớt phải nhỏ hơn dư gốc; tất toán dùng Chuộc đồ.')
-    if op in (2,3,4,5,6):interest=max(Decimal(5000),accrued);reset=True
+    if op in (2,3,4,5,6,7):interest=max(Decimal(5000),accrued);reset=True
     if op in (5,6):change=-balance
     next_rate=p['monthly_rate']
     if op in (2,3,4):
@@ -175,10 +192,19 @@ def estimate(p,operation,data):
         due=parse_date(data.get('due') or effective+timedelta(days=30),'Ngày hẹn mới')
         if not effective<due<=effective+timedelta(days=365):raise BusinessError('Ngày hẹn mới phải sau ngày tính lãi, tối đa 365 ngày.')
     extra=integer(data.get('extra','0') or '0','Thu thêm');discount=integer(data.get('discount','0') or '0','Giảm trừ')
+    liquidation=None
+    if op==6:
+        mode=str(data.get('liquidation_mode') or 'principal')
+        if mode not in ('principal','principal_interest','actual'):raise BusinessError('Chọn cách tính thanh lý hợp lệ.')
+        liquidation=liquidation_values(p,accrued);liquidation['mode']=mode
+        if mode=='actual' and liquidation['errors']:raise BusinessError(' '.join(liquidation['errors']))
+        target=integer(liquidation[mode],'Giá trị thanh lý')
+        interest=max(Decimal(5000),accrued) if mode=='principal_interest' else Decimal(0)
+        extra=max(Decimal(0),target-balance-interest);discount=max(Decimal(0),balance+interest-target)
     net=-change+interest+extra-discount
     if op!=2 and net<0:raise BusinessError('Giảm trừ không được lớn hơn số tiền phải thu.')
     if balance+change>Decimal('999999999999'):raise BusinessError('Dư gốc vượt giới hạn.')
-    return dict(applied_rate=applied_rate,transaction_date=effective,next_monthly_rate=next_rate,operation=op,change=change,interest=interest,extra=extra,discount=discount,net=net,days=days,accrued=accrued,due=due,reset=reset,principal_after=balance+change)
+    return dict(liquidation_json=C.packed(liquidation) if liquidation else '',applied_rate=applied_rate,transaction_date=effective,next_monthly_rate=next_rate,operation=op,change=change,interest=interest,extra=extra,discount=discount,net=net,days=days,accrued=accrued,due=due,reset=reset,principal_after=balance+change)
 
 def process(lid,op,data,files=None):
     require_live();key=str(data.get('request_key','')).strip()
@@ -191,25 +217,33 @@ def process(lid,op,data,files=None):
         if old:
             if old['loan_id']!=lid or old['operation_id']!=op:raise BusinessError('Mã yêu cầu đã sử dụng.')
             return
+        if op==7 and (not files or not files.get('lost_photo') or not files['lost_photo'].filename):
+            raise BusinessError('Vui lòng chụp hoặc chọn ảnh giấy cam kết báo mất trước khi xác nhận.')
         if fingerprint(p)!=data.get('fingerprint'):raise BusinessError('Phiếu đã thay đổi. Mở lại và đối chiếu trước khi xác nhận.')
-        before=snapshot(p);note=str(data.get('reason' if op==0 else 'note','')).strip()
+        before=snapshot(p)
+        for date_field in ('interest_from','due_at'):before[date_field]=str(p[date_field])
+        note=str(data.get('reason' if op==0 else 'note','')).strip()
         if len(note)>255:raise BusinessError('Ghi chú tối đa 255 ký tự.')
         if op==0:
             state=cancellation(p)
             if not state['allowed']:raise BusinessError(state['reason'])
-            if not note or data.get('returned_funds')!='yes':raise BusinessError('Cần lý do và xác nhận hoàn trả đầy đủ dòng tiền/tài sản của phiên.')
-            last=latest(lid);restore=unpack(last['terms_json'])['before']
+            if data.get('confirmed')!='yes' and data.get('returned_funds')!='yes':raise BusinessError('Cần xác nhận xóa phiên.')
+            last=latest(lid)
+            if last['operation_id']==1:
+                if p['legacy_pawn_id'] or db.one('SELECT COUNT(*) n FROM cd_loan_logs WHERE loan_id=%s',(lid,))['n']!=1:
+                    raise BusinessError('Chỉ xóa toàn bộ phiếu cầm mới chưa có phiên tiếp theo.')
+                db.execute('DELETE FROM cd_payments WHERE log_id=%s',(last['id'],))
+                db.execute('DELETE FROM cd_loan_logs WHERE id=%s AND loan_id=%s',(last['id'],lid))
+                db.execute('DELETE FROM cd_loan_items WHERE loan_id=%s',(lid,))
+                db.execute('DELETE FROM cd_loans WHERE id=%s',(lid,))
+                return dict(deleted_loan=True)
+            restore=unpack(last['terms_json'])['before']
             for k in before:p[k]=restore[k]
             if 'monthly_rate' in restore:p['monthly_rate']=Decimal(str(restore['monthly_rate']))
-            p['principal_balance']=Decimal(str(p['principal_balance']));p['interest_from']=parse_date(p['interest_from']);p['due_at']=parse_date(p['due_at'])
-            restore_terms=unpack(p['terms_json']);restore_terms['assets_hash']=assets_hash(lid);p['terms_json']=C.packed(restore_terms)
+            p['principal_balance']=Decimal(str(p['principal_balance']));p['interest_from']=datetime.fromisoformat(str(p['interest_from']));p['due_at']=datetime.fromisoformat(str(p['due_at']))
             update(p)
-            log=post_log(p,0,before,-last['principal_change'],-last['interest'],-last['extra_amount'],-last['discount_amount'],0,key,note,reverses=last['id'])
-            for pay in db.all('SELECT * FROM cd_payments WHERE log_id=%s',(last['id'],)):
-                bank=unpack(pay['bank_snapshot'])
-                if bank.pop('qr_image',None):bank['original_qr_log_id']=last['id']
-                bank.pop('qr_mime',None)
-                insert('cd_payments',dict(log_id=log,channel=pay['channel'],direction='OUT' if pay['direction']=='IN' else 'IN',amount=pay['amount'],bank_snapshot=C.packed(bank),reconciliation_state='REVERSED'))
+            db.execute('DELETE FROM cd_payments WHERE log_id=%s',(last['id'],))
+            db.execute('DELETE FROM cd_loan_logs WHERE id=%s AND loan_id=%s',(last['id'],lid))
             return
         if not db.one('SELECT id FROM cd_loan_logs WHERE loan_id=%s AND request_key IS NOT NULL LIMIT 1',(lid,)):
             original=C.target(p['legacy_pawn_id']) if p['legacy_pawn_id'] else None
@@ -239,12 +273,26 @@ def process(lid,op,data,files=None):
             terms['renewal']=dict(transaction_date=str(e['transaction_date']),previous_rate=before['monthly_rate'],next_rate=str(e['next_monthly_rate']))
         p.update(principal_balance=e['principal_after'],last_operation_id=op,due_at=e['due'],terms_json=C.packed(terms))
         if op in (5,6):p['loan_state']='REDEEMED' if op==5 else 'LIQUIDATED'
-        if op==7:p['receipt_lost']=1
+        if op==7:
+            p['receipt_lost']=1
+            terms['lost_unlocked']=False
+            p['terms_json']=C.packed(terms)
         update(p);log=post_log(p,op,before,e['change'],e['interest'],e['extra'],e['discount'],e['days'],key,note,applied_rate=e['applied_rate'])
+        if op==6:
+            log_terms=unpack(db.one('SELECT terms_json FROM cd_loan_logs WHERE id=%s',(log,))['terms_json'])
+            log_terms['liquidation']=unpack(e['liquidation_json'])
+            db.execute('UPDATE cd_loan_logs SET terms_json=%s WHERE id=%s',(C.packed(log_terms),log))
+        if op==7 and files and files.get('lost_photo') and files['lost_photo'].filename:
+            attachment=save_lost_photo(files['lost_photo'])
+            log_terms=unpack(db.one('SELECT terms_json FROM cd_loan_logs WHERE id=%s',(log,))['terms_json'])
+            log_terms['lost_photo']=attachment
+            db.execute('UPDATE cd_loan_logs SET terms_json=%s WHERE id=%s',(C.packed(log_terms),log))
         post_payments(log,e['net'],bank,info)
 
 def update(p):
-    values=snapshot(p);values['monthly_rate']=p['monthly_rate'];cols=list(values)
+    values=snapshot(p);values['monthly_rate']=p['monthly_rate']
+    for date_field in ('interest_from','due_at'):values[date_field]=p[date_field]
+    cols=list(values)
     db.execute('UPDATE cd_loans SET '+','.join(k+'=%s' for k in cols)+",version=version+1,migration_state='LIVE' WHERE id=%s",[values[k] for k in cols]+[p['id']])
 
 @bp.post('/bien-nhan/<int:lid>/tinh-phien')
@@ -263,7 +311,7 @@ def commit(lid):
 
 
 def checkout_summary(p):
-    last=latest(p['id']);terms=unpack(p['terms_json'])
+    last=db.one('SELECT * FROM cd_loan_logs WHERE loan_id=%s AND operation_id<>8 ORDER BY id DESC LIMIT 1',(p['id'],));terms=unpack(p['terms_json'])
     start=parse_date(p['interest_from']);due=parse_date(p['due_at']);days=(due-start).days
     forecast=None
     if p['loan_state']=='ACTIVE' and days>=0:
@@ -314,10 +362,15 @@ def receipt(raw):
         # Historic receipt QR is only attributable to the opening, never a later session.
         old_qr=next((i for i in inventory(p) if i['slot']=='anh_qr' and i['available']),None)
         if old_qr:photos['anh_qr']=url_for('loans.photo',loan_id=p['id'],slot='anh_qr')
-    return dict(count_print=p.get('count_print',0),print_count_url=url_for('live.print_count',lid=p['id']),id=p['id'],sku=p['sku'],status=p['last_operation_id'],status_name=C.LABEL[p['loan_state']],active=p['loan_state']=='ACTIVE',valuation_known=bool(items and all(i['valuation'] is not None for i in items)),items=rows,
+    lost_papers=[]
+    for report in db.all('SELECT id,happened_at,note,terms_json FROM cd_loan_logs WHERE loan_id=%s AND operation_id=7 ORDER BY happened_at DESC,id DESC',(p['id'],)):
+        has_photo=bool(unpack(report['terms_json']).get('lost_photo'))
+        lost_papers.append(dict(id=report['id'],at=str(report['happened_at']),note=report['note'] or '',photo_url=url_for('live.lost_photo',log_id=report['id']) if has_photo else None))
+    session_count=db.one('SELECT COUNT(*) total FROM cd_loan_logs WHERE loan_id=%s AND operation_id<>8',(p['id'],))['total']
+    return dict(session_count=session_count,loan_state=p['loan_state'],lost_papers=lost_papers,count_print=p.get('count_print',0),print_count_url=url_for('live.print_count',lid=p['id']),id=p['id'],sku=p['sku'],status=p['last_operation_id'],status_name=C.LABEL[p['loan_state']],active=p['loan_state']=='ACTIVE',valuation_known=bool(items and all(i['valuation'] is not None for i in items)),items=rows,
       value=str(p['principal_balance']),monthly_rate=str(p['monthly_rate']),safe=p['safe'] or '',date1=str(parse_date(p['opened_at'])),due=str(parse_date(p['due_at'])),employee_id=p['employee_id'] or '',employee_name=p['employee_name'] or '',note=p['note'] or '',payment=pay,content=desk.summary(rows),
       customer=dict(id=p['cust_id'],name=customer.get('name',''),phone=customer.get('phone') or p['phone'],cccd=customer.get('cccd',''),addr=customer.get('addr','')),customer_error=err,photos=photos,detail_url=url_for('live.print_receipt',lid=p['id']),fingerprint=fingerprint(p),cancellation=cancellation(p),
-      checkout=checkout,preview_url=url_for('live.preview',lid=p['id']),commit_url=url_for('live.commit',lid=p['id']),receipt_lost=bool(p['receipt_lost']))
+      checkout=checkout,preview_url=url_for('live.preview',lid=p['id']),commit_url=url_for('live.commit',lid=p['id']),receipt_lost=bool(p['receipt_lost']),lost_locked=lost_locked(p),unlock_url=url_for('live.unlock_lost',lid=p['id']))
 
 # Each log is joined to pre-aggregated payments: never multiply interest by channels.
 LOG_SQL="""SELECT l.*,p.sku,p.phone,p.cust_id pmv_cust_id,
@@ -341,6 +394,7 @@ def sessions(args):
         where=' WHERE loan_id=%s';params=[lid];q=''
         bounds=db.one('SELECT MIN(happened_at) first_at,MAX(happened_at) last_at FROM cd_loan_logs WHERE loan_id=%s',(lid,))
         start=parse_date(bounds['first_at'] or p['opened_at']);end=parse_date(bounds['last_at'] or today())
+    if not args.get('loan_id'):where+=' AND operation_id<>8'
     if q:
         ids=[]
         try:ids=master.call('search_ids',q=q)['ids']
@@ -366,6 +420,7 @@ def sessions(args):
           amount=str(abs(r['principal_change'])),extra=str(r['extra_amount']),discount=str(r['discount_amount']),net=str(r['cash']+r['bank']))
         for k in ('interest','cash','bank'):r[k]=str(r[k])
         r['happened_at']=str(r['happened_at'])
+        if r['operation_id']==7 and unpack(r['terms_json']).get('lost_photo'):r['lost_photo_url']='/camdo/phien/'+str(r['id'])+'/cam-ket'
     return dict(rows=rows,groups=groups,totals=totals,total=total,page=page,pages=pages,d1=str(start),d2=str(end),q=q,warnings=[])
 
 def dashboard():
@@ -525,3 +580,78 @@ def outgoing_payment(lid):
         post_payments(last['id'],-total,bank,info)
         db.execute('UPDATE cd_loan_logs SET terms_json=%s WHERE id=%s',(C.packed(terms),last['id']))
     return dict(sku=p['sku'],saved=True)
+
+
+def save_lost_photo(upload):
+    import io
+    from PIL import Image,ImageOps,UnidentifiedImageError
+    raw=upload.read(15*1024*1024+1)
+    if len(raw)>15*1024*1024:raise BusinessError('Ảnh cam kết tối đa 15 MB.')
+    try:
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.width*image.height>25000000:raise BusinessError('Ảnh cam kết tối đa 25 megapixel.')
+            image=ImageOps.exif_transpose(image).convert('RGB');image.thumbnail((2400,2400))
+            output=io.BytesIO();image.save(output,format='JPEG',quality=90)
+    except (UnidentifiedImageError,OSError,ValueError,Image.DecompressionBombError) as exc:raise BusinessError('Không đọc được ảnh cam kết.') from exc
+    docs,_=photos_save({'lost_commitment':output.getvalue()})
+    return docs['lost_commitment']
+
+
+@bp.get('/phien/<int:log_id>/cam-ket')
+def lost_photo(log_id):
+    row=db.one('SELECT terms_json FROM cd_loan_logs WHERE id=%s AND operation_id=7',(log_id,))
+    info=unpack(row['terms_json']).get('lost_photo') if row else None
+    if not info:abort(404)
+    root=Path(current_app.config.get('LOAN_MEDIA_ROOT',str(Path(current_app.root_path).parent/'media'/'loans'))).resolve()
+    path=(root/str(info.get('file',''))).resolve()
+    if path.parent!=root or not path.is_file():abort(404)
+    raw=path.read_bytes()
+    if hashlib.sha256(raw).hexdigest()!=info.get('sha256'):abort(404)
+    return Response(raw,content_type='image/jpeg',headers={'Cache-Control':'private, no-store'})
+
+
+
+@bp.post('/bien-nhan/<int:lid>/mo-khoa-bao-mat')
+def unlock_lost(lid):
+    from . import auth
+    from flask import g
+    require_live();key=str(request.form.get('request_key',''));reason=str(request.form.get('reason','')).strip()
+    if not key or len(key)>64 or not reason or len(reason)>255:raise BusinessError('Nhập lý do mở khóa hợp lệ.')
+    failed=False
+    with db.transaction():
+        p=loan(lid,True)
+        duplicate=db.one('SELECT loan_id,operation_id FROM cd_loan_logs WHERE request_key=%s',(key,))
+        if duplicate:
+            if duplicate['loan_id']==lid and duplicate['operation_id']==8:return dict(sku=p['sku'])
+            raise BusinessError('Mã yêu cầu đã sử dụng.')
+        if not lost_locked(p):raise BusinessError('Phiếu không còn bị khóa báo mất.')
+        last=latest(lid);lt=unpack(last['terms_json']);uid=str(session['user_id'])
+        attempts=lt.get('unlock_attempts',{});stamps=[t for t in attempts.get(uid,[]) if now().timestamp()-t<300]
+        if len(stamps)>=5:raise BusinessError('Sai PassCode nhiều lần. Thử lại sau 5 phút.')
+        user=g.auth_user;code=request.form.get('passcode','')
+        valid=bool(code and len(code)<=128 and user.get('passcode') and auth.verify_password(code,user['passcode']))
+        if not valid:
+            attempts[uid]=stamps+[now().timestamp()];lt['unlock_attempts']=attempts
+            db.execute('UPDATE cd_loan_logs SET terms_json=%s WHERE id=%s',(C.packed(lt),last['id']))
+            failed=True
+        else:
+            before=snapshot(p)
+            for date_field in ('interest_from','due_at'):before[date_field]=str(p[date_field])
+            terms=unpack(p['terms_json']);terms['lost_unlocked']=True
+            terms['lost_unlock']=dict(actor=session['user_id'],at=str(now()),reason=reason)
+            p['terms_json']=C.packed(terms);update(p)
+            post_log(p,8,before,0,0,0,0,0,key,reason)
+    if failed:raise BusinessError('PassCode không đúng hoặc tài khoản chưa thiết lập PassCode.')
+    return dict(sku=p['sku'])
+
+
+@bp.get('/mau/giay-cam-ket-bao-mat')
+def lost_commitment_template():
+    return send_file(Path(current_app.root_path)/'resources'/'giay-cam-ket-bao-mat-kim-hanh-2.docx',as_attachment=True,download_name='Giay_cam_ket_bao_mat_Kim_Hanh_2.docx',mimetype='application/vnd.openxmlformats-officedocument.wordprocessingml.document')
+
+
+@bp.get('/gia-vang')
+def current_gold_prices():
+    from .services import gold_options
+    try:return dict(rows=[dict(g,price=str(g['price'])) for g in gold_options()]),200,{'Cache-Control':'no-store'}
+    except BusinessError as exc:return dict(error=str(exc)),503,{'Cache-Control':'no-store'}

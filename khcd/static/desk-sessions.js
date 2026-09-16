@@ -1,5 +1,7 @@
 (()=>{'use strict';
  const $=id=>document.getElementById(id),dialog=$('desk-sessions');if(!dialog)return;
+ const currentDay=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Asia/Ho_Chi_Minh',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+ let defaultDay=dialog.dataset.today;
  const form=$('sessions-filter');let page=1,pages=1,version=0,controller=null,loading=false;let historyLoan='',historySku='';
  const money=value=>value===null?'Chưa ghi':new Intl.NumberFormat('vi-VN').format(BigInt(String(value||0).split('.')[0]))+' đ';
  const node=(tag,value)=>{const e=document.createElement(tag);e.textContent=value;return e;};
@@ -10,7 +12,7 @@
   for(const row of data.rows){
    const tr=document.createElement('tr'),stamp=node('td',row.sku||'Thiếu biên nhận');stamp.append(node('small',row.happened_at));if(row.date_fallback)stamp.append(node('small','Thiếu ngày xử lý; dùng ngày bắt đầu.'));tr.append(stamp);
    const customer=node('td',row.customer_name||'Chưa có khách KK');customer.append(node('small',row.phone||'Thiếu SĐT'));tr.append(customer);
-   const operation=document.createElement('td'),badge=node('span',row.operation);badge.className='session-operation';badge.dataset.operation=String(row.status_id ?? row.operation_id ?? 'unknown');operation.append(badge);if(row.note)operation.append(node('small',row.note));if(row.reverses_log_id)operation.append(node('small','Đảo phiên #'+row.reverses_log_id));tr.append(operation);
+   const operation=document.createElement('td'),badge=node('span',row.operation);badge.className='session-operation';badge.dataset.operation=String(row.status_id ?? row.operation_id ?? 'unknown');operation.append(badge);if(row.note)operation.append(node('small',row.note));if(row.lost_photo_url){const link=node('a','Ảnh cam kết');link.href=row.lost_photo_url;link.target='_blank';link.rel='noopener';operation.append(link);}if(row.reverses_log_id)operation.append(node('small','Đảo phiên #'+row.reverses_log_id));tr.append(operation);
    const amounts=node('td',money(row.amount));amounts.append(node('small','Lãi: '+money(row.interest)));tr.append(amounts);
    const adjustments=node('td','Thêm: '+money(row.extra));adjustments.append(node('small','Giảm: '+money(row.discount)));tr.append(adjustments);
    const payment=node('td','TM: '+money(row.cash));payment.append(node('small','CK: '+money(row.bank)));tr.append(payment);
@@ -28,14 +30,15 @@
  async function load(nextPage=1){
   invalidate();const token=version;controller=new AbortController();loading=true;controls();$('sessions-status').classList.remove('is-error');$('sessions-status').textContent='Đang tải phiên giao dịch…';
   const params=historyLoan?new URLSearchParams({loan_id:historyLoan}):new URLSearchParams(new FormData(form));params.set('page',nextPage);
-  try{const response=await fetch(dialog.dataset.url+'?'+params,{signal:controller.signal});let data;try{data=await response.json();}catch(_){throw Error('Chưa nhận được dữ liệu. Tải lại trang và kiểm tra phiên đăng nhập.');}if(token!==version||!dialog.open)return;if(!response.ok)throw Error(data.error||'Chưa tải được danh sách.');render(data);}
+  try{const response=await fetch(dialog.dataset.url+'?'+params,{signal:controller.signal,cache:'no-store'});let data;try{data=await response.json();}catch(_){throw Error('Chưa nhận được dữ liệu. Tải lại trang và kiểm tra phiên đăng nhập.');}if(token!==version||!dialog.open)return;if(!response.ok)throw Error(data.error||'Chưa tải được danh sách.');render(data);}
   catch(error){if(token!==version||error.name==='AbortError')return;$('sessions-status').classList.add('is-error');$('sessions-status').textContent=error.message||'Chưa tải được danh sách.';}
   finally{if(token===version){loading=false;controls();}}
  }
- $('open-desk-sessions').addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if($('pawn-create').inert)return;historyLoan='';historySku='';form.hidden=false;$('desk-sessions-title').textContent='Danh sách phiên giao dịch';dialog.showModal();load();});
+ $('open-desk-sessions').addEventListener('click',event=>{event.preventDefault();event.stopPropagation();if($('pawn-create').inert)return;historyLoan='';historySku='';if(form.elements.d1.value===defaultDay&&form.elements.d2.value===defaultDay){defaultDay=currentDay();form.elements.d1.value=defaultDay;form.elements.d2.value=defaultDay;}form.hidden=false;$('desk-sessions-title').textContent='Danh sách phiên giao dịch';dialog.showModal();load();});
  $('open-receipt-history').addEventListener('click',()=>{const button=$('open-receipt-history');if(button.disabled||!button.dataset.loanId||$('pawn-create').inert)return;historyLoan=button.dataset.loanId;historySku=button.dataset.sku;form.hidden=true;$('desk-sessions-title').textContent='Nhật ký · '+historySku;dialog.showModal();load();});
+ form.elements.kind.addEventListener('change',()=>load());
  form.addEventListener('submit',event=>{event.preventDefault();load();});
  form.addEventListener('input',()=>{invalidate();$('sessions-status').textContent='Bộ lọc đã đổi. Bấm Tìm phiên để xem kết quả mới.';});
- $('sessions-today').addEventListener('click',()=>{form.elements.d1.value=dialog.dataset.today;form.elements.d2.value=dialog.dataset.today;form.elements.q.value='';load();});
+ $('sessions-today').addEventListener('click',()=>{defaultDay=currentDay();form.elements.d1.value=defaultDay;form.elements.d2.value=defaultDay;form.elements.q.value='';form.elements.kind.value='';load();});
  $('sessions-prev').addEventListener('click',()=>load(page-1));$('sessions-next').addEventListener('click',()=>load(page+1));dialog.addEventListener('close',invalidate);
 })();

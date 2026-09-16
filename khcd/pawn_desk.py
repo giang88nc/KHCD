@@ -40,7 +40,10 @@ def items(data, golds):
         stone=decimal(row.get('stone','0'),'Trọng lượng hột',maximum=gross)
         if stone>=gross or min(gross.as_tuple().exponent,stone.as_tuple().exponent)<-4:
             raise BusinessError('TL vàng phải lớn hơn 0; trọng lượng tối đa 4 số thập phân.')
-        price=decimal(row.get('price'),'Giá định giá',maximum=Decimal('999999999999'))
+        price=decimal(gold.get('price') or 0,'Giá thâu',maximum=Decimal('999999999999'))
+        if price<=0:raise BusinessError('Chưa có giá thâu hiện tại cho '+gold['name']+' trong khj_bl.gold_prices.')
+        if decimal(row.get('price'),'Giá định giá')!=price:
+            raise BusinessError('Giá thâu '+gold['name']+' đã thay đổi. Cập nhật giá và xác nhận lại phiếu.')
         if price!=money(price):raise BusinessError('Giá phải là số nguyên đồng.')
         result.append(dict(gold=str(gold['id']),name=gold['name'],unit=gold['unit'],description=desc,
             gross=str(gross),stone=str(stone),net=str(gross-stone),price=str(price),subtotal=str(money((gross-stone)*price))))

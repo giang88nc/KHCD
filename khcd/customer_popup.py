@@ -1,7 +1,9 @@
 """Same-origin host for the canonical KHBL customer popup. No customer SQL here."""
 import base64
+import re
+from pathlib import Path
 from urllib.parse import quote
-from flask import Blueprint, Response, abort, render_template, request
+from flask import Blueprint, Response, abort, render_template, request, current_app, send_file, url_for
 from . import customer_master as master, db
 from .domain import BusinessError
 
@@ -45,10 +47,42 @@ def api(path):
     return Response(unpack(result), status=result['status'], headers=result.get('headers', {}))
 
 
+ASSETS={'css/fonts.css','css/khbl.css','js/vendor/htmx.min.js','js/vn_text.js','js/cccd.js','js/khbl.js'}
+
+def asset_path(asset):
+    if asset not in ASSETS and not re.fullmatch(r'fonts/(?:BeVietnamPro-(?:400|500|600|700)|Cormorant-600)-(?:vietnamese|latin)\.woff2',asset):
+        abort(404)
+    root=Path(current_app.config.get('KHBL_STATIC_ROOT','D:/PYTHON/KHBL/static')).resolve()
+    path=(root/asset).resolve()
+    if not path.is_relative_to(root):abort(404)
+    return path
+
+@bp.app_context_processor
+def popup_asset_helpers():
+    def popup_asset_url(asset):
+        path=asset_path(asset)
+        version=str(path.stat().st_mtime_ns) if path.is_file() else 'bridge'
+        return url_for('customer_popup.asset',asset=asset,v=version)
+    return dict(popup_asset_url=popup_asset_url)
+
 @bp.get('/assets/<path:asset>')
 def asset(asset):
-    result = master.call('popup', asset=asset)
-    return Response(unpack(result), status=result['status'], headers=result.get('headers', {}))
+    path=asset_path(asset)
+    if path.is_file():
+        version=str(path.stat().st_mtime_ns)
+        response=send_file(path,conditional=True,max_age=86400 if request.args.get('v')==version else 0)
+        response.cache_control.public=False
+        response.cache_control.private=True
+        return response
+    # Remote installations can still use the original authenticated bridge.
+    result=master.call('popup',asset=asset)
+    response=Response(unpack(result),status=result['status'],headers=result.get('headers',{}))
+    if response.status_code==200:
+        import hashlib
+        response.set_etag(hashlib.sha256(response.get_data()).hexdigest())
+        response.headers['Cache-Control']='private, max-age=0, must-revalidate'
+        response.make_conditional(request)
+    return response
 
 
 @bp.errorhandler(BusinessError)

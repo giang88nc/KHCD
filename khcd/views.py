@@ -176,24 +176,23 @@ def pawn_new():
             return redirect(url_for('web.pawn_detail',pid=pid))
     q=request.args.get('customer_q','').strip()[:100]
     selection=data.get('customer_id',request.args.get('customer_id',''))
-    try:customers=entry_customers(q,selection)
+    try:customers=entry_customers(q,selection) if selection else []
     except master.Unavailable as exc:
         error=str(exc);customers=[dict(id=selection,name='Chưa đọc được hồ sơ KK',phone='',cccd='',addr='')] if selection else []
     if selection and customers:q=customers[0]['name']
     day_end=today()+timedelta(days=1)
     if live.enabled():
         daily=db.one('SELECT COUNT(*) count,COALESCE(SUM(principal_change),0) principal FROM cd_loan_logs WHERE operation_id=1 AND happened_at>=%s AND happened_at<%s',(today(),day_end))
-        recent=db.all("SELECT id,sku,principal_balance value,JSON_UNQUOTE(JSON_EXTRACT(customer_snapshot,'$.name')) customer_name,phone FROM cd_loans WHERE opened_at>=%s AND opened_at<%s ORDER BY id DESC LIMIT 8",(today(),day_end))
+        recent=[]
     else:
         daily=db.one('SELECT COUNT(*) count,COALESCE(SUM(sotien),0) principal FROM pawn_log WHERE status_id=1 AND date1>=%s AND date1<%s',(today(),day_end))
-        recent=db.all(svc.pawn_select()+' WHERE p.date1>=%s AND p.date1<%s ORDER BY p.id DESC LIMIT 8',(today(),day_end))
-        if master.enabled():master.hydrate(recent)
+        recent=[]
     employees=[]
     if master.enabled():
         try:employees=master.call('employees')['rows']
         except master.Unavailable as exc:error=error or str(exc)
     actions=db.all('SELECT id,name,sort FROM pawn_status ORDER BY sort,id')
-    safes=db.all("SELECT DISTINCT safe FROM pawn WHERE safe IS NOT NULL AND safe<>'' ORDER BY safe LIMIT 30")
+    safes=[]
     return render_template('pawn_form.html',title='Cầm đồ · Lập phiếu',customers=customers,golds=svc.gold_options(),customer_q=q,selected=selection,
         key=data.get('request_key') or secrets.token_urlsafe(24),form=data,error=error,daily=daily,recent=recent,master_kk=master.enabled(),employees=employees,actions=actions,safes=safes,customer_token=secrets.token_urlsafe(24)),400 if error else 200
 
@@ -231,9 +230,12 @@ def desk_receipt():
 def desk_cancel():
     try:
         pid=request.form.get('pid',type=int)
-        if not pid or request.form.get('returned_funds')!='yes':
-            raise BusinessError('Xác nhận đã thu hồi đủ tiền trước khi hủy phiên.')
-        live.process(pid,0,request.form) if live.enabled() else svc.process_pawn(pid,request.form,'cancel')
+        if not pid:raise BusinessError('Thiếu mã phiếu.')
+        if live.enabled():
+            result=live.process(pid,0,request.form) or {}
+            return dict(message='Đã xóa toàn bộ phiếu cầm mới.' if result.get('deleted_loan') else 'Đã xóa phiên, khôi phục phiếu trước giao dịch.',**result)
+        if request.form.get('returned_funds')!='yes':raise BusinessError('Xác nhận đã thu hồi đủ tiền trước khi hủy phiên.')
+        svc.process_pawn(pid,request.form,'cancel')
         return {'message':'Đã hủy phiên, ghi hoàn tiền và giữ lịch sử đối soát.'}
     except BusinessError as exc:return {'error':str(exc)},409
 

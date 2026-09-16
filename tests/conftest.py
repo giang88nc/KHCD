@@ -35,7 +35,10 @@ def mysql_config():
     with conn.cursor() as c:
         c.execute("INSERT INTO gold_price (id,name,scut,unit,sort) VALUES (1,'VÀNG 610','61','chỉ',1),(2,'VÀNG 9999','99','chỉ',2),(7,'Khác','#','#',7)")
         for i,label in [(1,'Cầm mới'),(4,'Gia hạn'),(5,'Chuộc đồ')]:c.execute('INSERT INTO pawn_status (id,name) VALUES (%s,%s)',(i,label))
-    yield dict(cfg,DB_NAME=name,AUTH_SOURCE_DB=name+'_auth',DB_READ_ONLY=False,TESTING=True,SECRET_KEY='test-key-only',MIN_INTEREST_DAYS=1,CUSTOMER_MASTER='legacy',CD_LIVE='0')
+    with conn.cursor() as c:
+        c.execute('CREATE TABLE gold_prices (id BIGINT PRIMARY KEY AUTO_INCREMENT,gold_type VARCHAR(50),buy DECIMAL(15,0),effective_at DATETIME,is_current TINYINT) ENGINE=InnoDB')
+        c.execute("INSERT INTO gold_prices(gold_type,buy,effective_at,is_current) VALUES ('9999',6000000,NOW(),1),('610',4000000,NOW(),1)")
+    yield dict(cfg,DB_NAME=name,GOLD_PRICE_DB=name,AUTH_SOURCE_DB=name+'_auth',DB_READ_ONLY=False,TESTING=True,SECRET_KEY='test-key-only',MIN_INTEREST_DAYS=1,CUSTOMER_MASTER='legacy',CD_LIVE='0')
     assert name.startswith('khj_cd_test_') and len(name)==24
     with conn.cursor() as c:
         c.execute('DROP DATABASE `'+name+'`')
@@ -49,6 +52,8 @@ def app(mysql_config):
         from khcd import db
         for t in ('cd_payments','cd_loan_logs','cd_loan_items','cd_loans','khcd_pawn_photo','khcd_pawn_desk','khcd_event','khcd_customer_meta','khcd_pawn_meta','khcd_pawn_customer','pawn_log','pawn','customer'):
             db.execute('DELETE FROM '+t)
+        db.execute('DELETE FROM gold_prices')
+        db.execute("INSERT INTO gold_prices(gold_type,buy,effective_at,is_current) VALUES ('9999',6000000,NOW(),1),('610',4000000,NOW(),1)")
         db.execute('DELETE FROM auth_user')
         db.execute('DELETE FROM '+auth.source_table())
         db.execute('INSERT INTO '+auth.source_table()+''' (id,username,password,first_name,last_name,email,is_active,is_staff,is_superuser,date_joined)

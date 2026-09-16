@@ -94,3 +94,20 @@
 .desk-action:hover:not(:disabled) .desk-action-art img{filter:drop-shadow(0 2px 4px var(--action-light,#efd29b));transform:translateY(-1px) scale(1.07)}
 @keyframes desk-icon-orbit{to{--desk-ring-angle:360deg}}
 @media(prefers-reduced-motion:reduce){.desk-action:not(:disabled) .desk-action-art:before{animation:none;background:var(--action-light,#efd29b)}.desk-action:hover:not(:disabled) .desk-action-art img{transform:none}}
+
+/* State feedback never changes the disabled interaction of a closed/locked receipt. */
+.desk-actions .desk-action.locked:disabled{overflow:hidden;background:linear-gradient(110deg,#811c30,#b53148);border-color:#d65c70;color:#fff4f2;box-shadow:inset 0 1px 0 #ffffff20,0 2px 7px #9c243326}
+.desk-actions .desk-action.locked:disabled::after{content:"";position:absolute;inset:0;pointer-events:none;background:linear-gradient(100deg,transparent 20%,#ffb0b530 43%,#fff0e85c 50%,#ffb0b530 57%,transparent 80%);transform:translateX(-110%);animation:desk-locked-sweep 3.2s ease-in-out infinite}
+.desk-action.locked:disabled .desk-action-copy small{color:#ffdadb}
+.desk-action.locked:disabled .desk-action-art{background:#fff1e51c}
+.desk-action.locked:disabled .desk-action-art img{opacity:.88;filter:saturate(.7)}
+.desk-actions .desk-action.locked:disabled .desk-action-indicator,.desk-action.locked:disabled .desk-action-indicator:before{border-color:#ffe0df}
+.desk-actions .desk-action.liquidated:disabled{overflow:hidden;background:linear-gradient(120deg,#594531,#80603b);color:#fff2da;border-color:#bc9356;box-shadow:inset 0 0 0 1px #ecd6a51a;animation:desk-liquidated-glow 4s ease-in-out infinite}
+.desk-action.liquidated:disabled .desk-action-copy small{color:#ead6b6}
+.desk-action.liquidated:disabled .desk-action-art{background:#edd09b24}
+.desk-action.liquidated:disabled .desk-action-art img{opacity:.9;filter:sepia(.2) saturate(.7)}
+.desk-actions .desk-action.liquidated:disabled .desk-action-indicator{height:8px;width:5px;border:solid #f5d7a1;border-width:0 2px 2px 0;transform:rotate(45deg);border-radius:0;background:none}
+.desk-action.liquidated:disabled .desk-action-indicator:before{display:none}
+@keyframes desk-locked-sweep{0%,15%{transform:translateX(-110%)}75%,100%{transform:translateX(110%)}}
+@keyframes desk-liquidated-glow{0%,100%{box-shadow:inset 0 0 0 1px #ecd6a51a,0 0 0 #c29a5900}50%{box-shadow:inset 0 0 0 1px #ecd6a54a,0 0 9px #c29a5938}}
+@media(prefers-reduced-motion:reduce){.desk-actions .desk-action.locked:disabled::after{animation:none;transform:none;background:linear-gradient(100deg,transparent,#ffffff12,transparent)}.desk-actions .desk-action.liquidated:disabled{animation:none}}

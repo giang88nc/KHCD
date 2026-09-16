@@ -8,6 +8,8 @@
  <link rel="stylesheet" href="{{ url_for('static',filename='app.css') }}?v=20260914-entry">
  <link rel="stylesheet" href="{{ url_for('static',filename='ruby.css') }}?v=20260914-entry">
  <script src="{{ url_for('static',filename='app.js') }}?v=20260914-entry" defer></script>
+ <link rel="stylesheet" href="{{ url_for('static',filename='ui-dialog.css') }}?v=20260916a">
+ <script src="{{ url_for('static',filename='ui-dialog.js') }}?v=20260916a" defer></script>
  {% block page_assets %}{% endblock %}
 </head>
 <body class="ruby-app {{ 'is-authenticated' if session.get('user') else 'is-login' }}">

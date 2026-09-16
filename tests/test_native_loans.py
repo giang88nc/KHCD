@@ -29,11 +29,16 @@ def opdata(client,lid,op,**kw):
     r=client.post(f'/camdo/bien-nhan/{lid}/tinh-phien',data=data)
     assert r.status_code==200,r.json
     data.update(fingerprint=r.json['fingerprint'],confirmed_total=str(abs(Decimal(r.json['net']))))
+    if op==7:
+        import io
+        from PIL import Image
+        image=io.BytesIO();Image.new('RGB',(100,80),'white').save(image,format='PNG');image.seek(0)
+        data['lost_photo']=(image,'cam-ket.png')
     return data
 
 def cancel(client,lid):
     with client.application.app_context():p=L.loan(lid);finger=L.fingerprint(p)
-    return client.post('/camdo/lap-phieu/huy-phien',data=dict(csrf_token='token',pid=lid,fingerprint=finger,request_key=uuid.uuid4().hex,reason='Hủy QA',returned_funds='yes'))
+    return client.post('/camdo/lap-phieu/huy-phien',data=dict(csrf_token='token',pid=lid,fingerprint=finger,request_key=uuid.uuid4().hex,confirmed='yes'))
 
 def test_create_native_only_and_views(native,client):
     lid,data=create(client)
@@ -49,16 +54,19 @@ def test_create_native_only_and_views(native,client):
         assert client.get(path).status_code==200,path
     assert cancel(client,lid).status_code==200
     with native.app_context():
-        assert L.loan(lid)['principal_balance']==0
-        assert db.one("SELECT SUM(IF(direction='IN',amount,-amount)) n FROM cd_payments")['n']==0
-        assert L.check(lid)['errors']==0
+        for table in ('cd_loans','cd_loan_items','cd_loan_logs','cd_payments'):
+            assert db.one('SELECT COUNT(*) n FROM '+table)['n']==0
 
 @pytest.mark.parametrize('operation',[2,3,4,5,6,7])
 def test_operations_and_reversal(native,client,operation):
     lid,_=create(client)
-    with native.app_context():db.execute('UPDATE cd_loans SET interest_from=%s WHERE id=%s',(now()-timedelta(days=30),lid))
+    with native.app_context():
+        db.execute('UPDATE cd_loans SET interest_from=%s WHERE id=%s',(now()-timedelta(days=30),lid))
+        first=L.latest(lid);terms=L.unpack(first['terms_json']);terms['after']=L.snapshot(L.loan(lid))
+        db.execute('UPDATE cd_loan_logs SET terms_json=%s WHERE id=%s',(L.C.packed(terms),first['id']))
     data=opdata(client,lid,operation)
     r=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data);assert r.status_code==200,r.json
+    data.pop('lost_photo',None)
     assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
     with native.app_context():
         p=L.loan(lid);assert L.cancellation(p)['allowed']
@@ -67,7 +75,7 @@ def test_operations_and_reversal(native,client,operation):
     r=cancel(client,lid);assert r.status_code==200,r.json
     with native.app_context():
         p=L.loan(lid);assert p['loan_state']=='ACTIVE';assert p['principal_balance']==10000000
-        assert not L.cancellation(p)['allowed']
+        assert db.one('SELECT COUNT(*) n FROM cd_loan_logs WHERE loan_id=%s',(lid,))['n']==1
         assert L.check(lid)['errors']==0
 
 def test_time_boundary_stale_and_rollback(native,client,monkeypatch):
@@ -151,13 +159,15 @@ def test_converted_loan_operates_without_source_writes(native,client,monkeypatch
     pid=receipt.__wrapped__(native,monkeypatch)
     with native.test_request_context():
         session.update(user='khj_admin',user_id=1)
-        before=C.digest(C.source(pid));review=C.inspect(pid);lid=C.convert(pid,review['review_hash'])
+        before=C.digest(C.source(pid));review=C.inspect(pid);lid=C.convert(pid,review['review_hash']);original_plan=C.normalized(C.target(pid)[1])
     d=opdata(client,lid,4)
     assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=d).status_code==200
     with native.app_context():assert C.digest(C.source(pid))==before
     assert cancel(client,lid).status_code==200
     with native.app_context():
         assert C.digest(C.source(pid))==before
+        restored=C.normalized(C.target(pid)[1])
+        assert restored==original_plan, {k:(original_plan['loan'][k],v) for k,v in restored['loan'].items() if v!=original_plan['loan'][k]}
         assert L.check(lid)['errors']==0
 
 
@@ -222,8 +232,9 @@ def test_qr_belongs_to_each_payment_not_asset(native,client,monkeypatch):
     assert client.get(f'/camdo/phien/{first}/qr').data==b'qr-opening'
     assert cancel(client,lid).status_code==200
     with native.app_context():
-        third=L.latest(lid)['id'];assert L.checkout_summary(L.loan(lid))['qr_url'] is None
-    assert client.get(f'/camdo/phien/{third}/qr').status_code==404
+        assert L.latest(lid)['id']==first
+        assert L.checkout_summary(L.loan(lid))['qr_url']==f'/camdo/phien/{first}/qr'
+    assert client.get(f'/camdo/phien/{second}/qr').status_code==404
     assert native.test_client().get(f'/camdo/phien/{first}/qr').status_code==302
     html=client.get(f'/camdo/bien-nhan/{lid}').get_data(as_text=True)
     import base64
@@ -426,7 +437,9 @@ def test_outgoing_qr_exact_amount_and_atomic_payment_edit(native,client):
     assert image.status_code==200 and image.content_type=='image/png'
     assert client.post(url,data={**data,'mode':'save','request_key':uuid.uuid4().hex}).status_code==400
     assert cancel(client,lid).status_code==200
-    with native.app_context():assert L.latest(lid)['operation_id']==0
+    with native.app_context():
+        assert L.latest(lid) is None
+        assert not db.one('SELECT id FROM cd_loans WHERE id=%s',(lid,))
 
 
 def test_outgoing_payment_time_latest_and_direction_guards(native,client):
@@ -437,3 +450,241 @@ def test_outgoing_payment_time_latest_and_direction_guards(native,client):
     assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=op).status_code==200
     assert client.post(url,data=data).status_code==400
     with native.test_request_context():assert not L.payment_edit_state(L.loan(lid))['allowed']
+
+def test_lost_session_deleted_and_restores_unlock(native,client):
+    import io
+    from PIL import Image
+    image=io.BytesIO();Image.new('RGB',(120,80),'white').save(image,format='PNG')
+    lid,_=create(client);data=opdata(client,lid,7)
+    response=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data={**data,'lost_photo':(io.BytesIO(image.getvalue()),'commitment.png')})
+    assert response.status_code==200,response.json
+    with native.app_context():
+        log=L.latest(lid);terms=L.unpack(log['terms_json'])
+        assert 'lost_photo' in terms
+        assert 'lost_photo' not in L.unpack(L.loan(lid)['documents_json'])
+    url=f"/camdo/phien/{log['id']}/cam-ket"
+    assert client.get(url).status_code==200
+    assert client.get(url).content_type=='image/jpeg'
+    assert url in client.get(f'/camdo/bien-nhan/{lid}').get_data(as_text=True)
+    assert cancel(client,lid).status_code==200
+    assert client.get(url).status_code==404
+    with native.app_context():assert not L.lost_locked(L.loan(lid))
+
+
+def test_invalid_lost_photo_rolls_back_session(native,client):
+    import io
+    lid,_=create(client);data=opdata(client,lid,7)
+    response=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data={**data,'lost_photo':(io.BytesIO(b'not an image'),'bad.jpg')})
+    assert response.status_code==409
+    with native.app_context():
+        assert not L.loan(lid)['receipt_lost']
+        assert L.latest(lid)['operation_id']==1
+
+
+def test_lost_interest_lock_passcode_and_unlock_audit(native,client):
+    from khcd import auth
+    from django.contrib.auth.hashers import make_password
+    lid,_=create(client)
+    with native.app_context():
+        db.execute('UPDATE cd_loans SET interest_from=%s WHERE id=%s',(today()-timedelta(days=5),lid))
+        db.execute('UPDATE '+auth.source_table()+' SET passcode=%s WHERE id=1',(make_password('654321'),))
+    data=opdata(client,lid,7)
+    assert Decimal(data['confirmed_total'])==50000
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
+    with native.app_context():
+        p=L.loan(lid);assert L.lost_locked(p)
+        assert L.latest(lid)['interest']==50000
+    for operation in (2,3,4,5,6,7):
+        assert client.post(f'/camdo/bien-nhan/{lid}/tinh-phien',data=dict(csrf_token='token',operation=operation)).status_code==409
+    with native.app_context():assert L.cancellation(L.loan(lid))['allowed']
+    url=f'/camdo/bien-nhan/{lid}/mo-khoa-bao-mat'
+    unlock=dict(csrf_token='token',request_key=uuid.uuid4().hex,reason='Đã đối soát cam kết',passcode='wrong')
+    assert client.post(url,data=unlock).status_code==400
+    unlock['passcode']='654321'
+    assert client.post(url,data=unlock).status_code==200
+    assert client.post(url,data=unlock).status_code==200
+    with native.app_context():
+        p=L.loan(lid);assert not L.lost_locked(p) and p['receipt_lost']
+        assert L.latest(lid)['operation_id']==8
+        assert L.check(lid)['errors']==0
+    data=opdata(client,lid,4,transaction_date=str(today()+timedelta(days=15)))
+    assert Decimal(data['confirmed_total'])==150000
+    with native.app_context():
+        p=L.loan(lid)
+        assert L.parse_date(p['interest_from'])==today()
+        assert L.checkout_summary(p)['operation']==L.OPS[7]
+        assert not db.one('SELECT id FROM cd_payments WHERE log_id=%s',(L.latest(lid)['id'],))
+
+
+def test_lost_paper_procedure_requires_no_extra_form_fields(native,client):
+    lid,_=create(client);data=opdata(client,lid,7)
+    result=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data)
+    assert result.status_code==200,result.json
+    with native.app_context():
+        assert L.latest(lid)['operation_id']==7
+        assert L.lost_locked(L.loan(lid))
+
+
+def test_lost_cancel_expires_at_five_minutes(native,client,monkeypatch):
+    lid,_=create(client);data=opdata(client,lid,7)
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
+    with native.app_context():
+        stamp=L.latest(lid)['happened_at']
+        monkeypatch.setattr(L,'now',lambda:stamp+timedelta(seconds=299))
+        assert L.cancellation(L.loan(lid))['allowed']
+        monkeypatch.setattr(L,'now',lambda:stamp+timedelta(seconds=300))
+        assert not L.cancellation(L.loan(lid))['allowed']
+    assert cancel(client,lid).status_code==409
+    with native.app_context():assert L.lost_locked(L.loan(lid))
+
+
+def test_delete_unlock_restores_lock_without_new_history(native,client):
+    from khcd import auth
+    from django.contrib.auth.hashers import make_password
+    lid,_=create(client);data=opdata(client,lid,7)
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
+    with native.app_context():
+        db.execute('UPDATE '+auth.source_table()+' SET passcode=%s WHERE id=1',(make_password('654321'),))
+        lost_id=L.latest(lid)['id'];start=L.loan(lid)['interest_from']
+    assert client.post(f'/camdo/bien-nhan/{lid}/mo-khoa-bao-mat',data=dict(csrf_token='token',request_key=uuid.uuid4().hex,reason='QA',passcode='654321')).status_code==200
+    with native.app_context():deleted_id=L.latest(lid)['id']
+    assert cancel(client,lid).status_code==200
+    with native.app_context():
+        assert not db.one('SELECT id FROM cd_loan_logs WHERE id=%s',(deleted_id,))
+        assert L.latest(lid)['id']==lost_id
+        assert L.lost_locked(L.loan(lid))
+        assert L.loan(lid)['interest_from']==start
+        assert L.check(lid)['errors']==0
+
+
+def test_delete_transaction_rolls_back_on_log_delete_failure(native,client,monkeypatch):
+    lid,_=create(client);data=opdata(client,lid,4)
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
+    with native.app_context():
+        log_id=L.latest(lid)['id'];before=L.fingerprint(L.loan(lid))
+    execute=db.execute
+    def fail(sql,*args,**kwargs):
+        if sql.startswith('DELETE FROM cd_loan_logs'):raise RuntimeError('QA delete failure')
+        return execute(sql,*args,**kwargs)
+    monkeypatch.setattr(db,'execute',fail)
+    with pytest.raises(RuntimeError):cancel(client,lid)
+    with native.app_context():
+        assert L.latest(lid)['id']==log_id
+        assert L.fingerprint(L.loan(lid))==before
+        assert db.one('SELECT COUNT(*) n FROM cd_payments WHERE log_id=%s',(log_id,))['n']>0
+
+
+def test_opening_delete_rolls_back_all_tables_on_failure(native,client,monkeypatch):
+    lid,_=create(client)
+    execute=db.execute
+    def fail(sql,*args,**kwargs):
+        if sql.startswith('DELETE FROM cd_loans '):raise RuntimeError('QA master delete failure')
+        return execute(sql,*args,**kwargs)
+    monkeypatch.setattr(db,'execute',fail)
+    with pytest.raises(RuntimeError):cancel(client,lid)
+    with native.app_context():
+        assert L.loan(lid)['principal_balance']==10000000
+        assert L.latest(lid)['operation_id']==1
+        assert db.one('SELECT COUNT(*) n FROM cd_loan_items WHERE loan_id=%s',(lid,))['n']==1
+        assert db.one('SELECT COUNT(*) n FROM cd_payments')['n']==2
+
+
+def test_lost_missing_photo_rejected_without_writes(native,client):
+    lid,_=create(client);data=opdata(client,lid,7);data.pop('lost_photo')
+    with native.app_context():before=L.fingerprint(L.loan(lid));log_id=L.latest(lid)['id']
+    response=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data)
+    assert response.status_code==409
+    assert 'ảnh' in response.json['error']
+    with native.app_context():
+        assert L.fingerprint(L.loan(lid))==before
+        assert L.latest(lid)['id']==log_id
+
+
+def test_commitment_word_download(native,client):
+    from pathlib import Path
+    url='/camdo/mau/giay-cam-ket-bao-mat'
+    response=client.get(url)
+    assert response.status_code==200
+    assert response.data==(Path(native.root_path)/'resources'/'giay-cam-ket-bao-mat-kim-hanh-2.docx').read_bytes()
+    assert 'attachment' in response.headers['Content-Disposition']
+    assert 'wordprocessingml' in response.content_type
+    assert native.test_client().get(url).status_code==302
+
+
+@pytest.mark.parametrize('operation',[5,6])
+def test_sessions_filter_includes_closed_receipts(native,client,operation):
+    lid,_=create(client);data=opdata(client,lid,operation)
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==200
+    response=client.get('/camdo/lap-phieu/phien-giao-dich',query_string=dict(d1=str(today()),d2=str(today()),kind=operation))
+    assert response.status_code==200
+    assert response.json['total']==1
+    assert response.json['rows'][0]['operation_id']==operation
+    assert response.json['rows'][0]['loan_id']==lid
+    assert response.json['rows'][0]['can_open']
+
+
+@pytest.mark.parametrize('mode,expected,interest',[('principal',10000000,0),('principal_interest',10050000,50000),('actual',15000000,0)])
+def test_liquidation_modes_multi_items(native,client,mode,expected,interest):
+    lid,_=create(client)
+    with native.app_context():
+        db.execute("UPDATE gold_prices SET buy=6000000 WHERE gold_type='9999'")
+        db.execute('UPDATE cd_loans SET interest_from=%s WHERE id=%s',(today()-timedelta(days=5),lid))
+        db.execute('UPDATE cd_loan_items SET net_weight=2.5,gross_weight=2.5 WHERE loan_id=%s',(lid,))
+        p=L.loan(lid);terms=L.unpack(p['terms_json']);terms['assets_hash']=L.assets_hash(lid)
+        db.execute('UPDATE cd_loans SET terms_json=%s WHERE id=%s',(L.C.packed(terms),lid))
+    data=opdata(client,lid,6,liquidation_mode=mode)
+    assert Decimal(data['confirmed_total'])==expected
+    response=client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data)
+    assert response.status_code==200,response.json
+    with native.app_context():
+        p=L.loan(lid);log=L.latest(lid)
+        assert p['loan_state']=='LIQUIDATED' and p['principal_balance']==0
+        assert log['interest']==interest
+        assert log['extra_amount']-log['discount_amount']==expected-10000000-interest
+        assert L.unpack(log['terms_json'])['liquidation']['mode']==mode
+        assert L.check(lid)['errors']==0
+
+
+def test_liquidation_sums_multiple_gold_items_and_rechecks_price(native,client):
+    lid,_=create(client)
+    with native.app_context():
+        db.execute("UPDATE gold_prices SET buy=6000000 WHERE gold_type='9999'")
+        db.execute("UPDATE gold_prices SET buy=4000000 WHERE gold_type='610'")
+        L.insert('cd_loan_items',dict(loan_id=lid,line_no=2,gold_code='61',description='Vòng',unit='chỉ',gross_weight=1,stone_weight=0,net_weight=1,unit_price=1,valuation=1))
+        p=L.loan(lid);terms=L.unpack(p['terms_json']);terms['assets_hash']=L.assets_hash(lid)
+        db.execute('UPDATE cd_loans SET terms_json=%s WHERE id=%s',(L.C.packed(terms),lid))
+    data=opdata(client,lid,6,liquidation_mode='actual')
+    assert Decimal(data['confirmed_total'])==16000000
+    with native.app_context():db.execute("UPDATE gold_prices SET buy=3000000 WHERE gold_type='610'")
+    assert client.post(f'/camdo/bien-nhan/{lid}/chot-phien',data=data).status_code==409
+    with native.app_context():assert L.loan(lid)['loan_state']=='ACTIVE'
+
+
+def test_liquidation_actual_below_principal_and_missing_price(native,client):
+    lid,_=create(client)
+    with native.app_context():
+        p=L.loan(lid)
+        db.execute("UPDATE gold_prices SET buy=0 WHERE gold_type='9999'")
+        with pytest.raises(L.BusinessError):L.estimate(p,6,dict(liquidation_mode='actual'))
+        assert L.estimate(p,6,{})['net']==10000000
+        db.execute("UPDATE gold_prices SET buy=4000000 WHERE gold_type='9999'")
+        estimate=L.estimate(p,6,dict(liquidation_mode='actual'))
+        assert estimate['net']==8000000 and estimate['discount']==2000000 and estimate['interest']==0
+
+
+def test_authoritative_shared_gold_prices(native,client):
+    from khcd.services import gold_options
+    with native.app_context():
+        db.execute("UPDATE gold_price SET value=1 WHERE scut='99'")
+        db.execute("UPDATE gold_prices SET buy=6123000 WHERE gold_type='9999'")
+        options={g['id']:g for g in gold_options()}
+        assert options['99']['price']==6123000 and options['99']['unit']=='chỉ'
+        assert options['bk']['price']==0
+        payload=dict(items_json=json.dumps([dict(gold='99',description='Nhẫn',gross='1',stone='0',price='1')]))
+        with pytest.raises(L.BusinessError):L.desk.items(payload,list(options.values()))
+        payload['items_json']=payload['items_json'].replace('"price": "1"','"price": "6123000"')
+        assert Decimal(L.desk.items(payload,list(options.values()))[0]['subtotal'])==6123000
+        db.execute("UPDATE gold_prices SET is_current=0 WHERE gold_type='9999'")
+        assert next(g for g in gold_options() if g['id']=='99')['price']==0
+    response=client.get('/camdo/gia-vang')
+    assert response.status_code==200 and response.headers['Cache-Control']=='no-store'

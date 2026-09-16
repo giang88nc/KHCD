@@ -88,7 +88,7 @@ def create_app(test_config=None):
             # Confine that policy to its same-origin iframe; the main app stays strict.
             response.headers['X-Frame-Options']='SAMEORIGIN'
             response.headers['Content-Security-Policy']="default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; img-src 'self' data: blob:; media-src 'self' blob:; form-action 'self'; frame-ancestors 'self'; base-uri 'self'"
-        if request.endpoint != 'static':
+        if request.endpoint != 'static' and not (request.endpoint=='customer_popup.asset' and response.status_code in (200,304)):
             response.headers['Cache-Control']='no-store'
         return response
 

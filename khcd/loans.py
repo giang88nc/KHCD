@@ -52,6 +52,8 @@ def detail(loan_id):
         except BusinessError:pass
     items=db.all('SELECT * FROM cd_loan_items WHERE loan_id=%s ORDER BY line_no',(loan_id,))
     logs=db.all('SELECT l.*,s.name operation_name FROM cd_loan_logs l LEFT JOIN pawn_status s ON s.id=l.operation_id WHERE loan_id=%s ORDER BY l.id',(loan_id,))
+    for log in logs:
+        if log['operation_id']==7 and decoded(log['terms_json'],{}).get('lost_photo'):log['lost_photo_url']=url_for('live.lost_photo',log_id=log['id'])
     payments=db.all('SELECT p.*,l.legacy_log_id FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.id,p.id',(loan_id,))
     for p in payments:
         p['bank']=decoded(p['bank_snapshot'],{})

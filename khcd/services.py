@@ -135,8 +135,9 @@ def restore_customer(customer_id):
         event('customer_restore',customer_id=customer_id,after=c)
 
 def gold_options():
-    # KHAC is a non-weight asset; keep existing gold codes unchanged.
-    return db.all("SELECT scut id,name,unit,value price FROM gold_price WHERE name <> 'Khác' AND unit IN ('chỉ','gram') AND scut IS NOT NULL ORDER BY sort,id") + [dict(id="KHAC",name="KHÁC",unit="món",price=0)]
+    from .gold_prices import options
+    return options()
+
 
 def create_pawn(data, files=None):
     from .live_loans import enabled
