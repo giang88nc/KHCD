@@ -32,18 +32,18 @@ THỨ TỰ TRUY VẤN (bắt buộc): phiếu + khách + món TRƯỚC, bố c�
 connection của request, đọc chéo khj_bl mà chết connection thì mọi truy vấn sau cũng chết và rơi
 vào errorhandler 503, tức là MẤT TỜ PHIẾU.
 """
+import datetime as dt
 import hashlib
 import os
+import re
 
 from flask import Blueprint, Response, render_template, request, url_for
 
-from . import gcd_layout as G, gcd_may_in as M, live_loans as live, ma_vach as MV, pawn_desk as desk
+from . import db, gcd_layout as G, gcd_may_in as M, live_loans as live, ma_vach as MV, pawn_desk as desk
 from .domain import money, parse_date
-from .loan_conversion import LABEL
 
 bp = Blueprint("gcd", __name__, url_prefix="/camdo")
 
-TU = {"1": "Tủ 18k", "2": "Tủ 24k", "3": "Tủ đồ lớn"}
 
 # Công tắc FAIL-CLOSED, riêng của KHCD (không nằm trong gcd_layout.css() để chuỗi CSS còn đối
 # chiếu được từng ký tự với bản KHBL). static/gcd-print.css khai NGƯỢC LẠI: khi in thì ẩn tờ giấy
@@ -60,41 +60,209 @@ def _rows(items):
 
     ⚠ KHÔNG viết hàm gộp món thứ hai: chuỗi này đã được ghi xuống khcd_pawn_desk.content và đang
     hiện ở bàn lập phiếu. Chữ trên biên nhận giao khách phải ĐÚNG chuỗi nhân viên đã xác nhận.
+
+    ⚠ 17/09/2026: BỎ mặc định `unit or "chỉ"`. Đơn vị in ra nay do MÃ VÀNG quyết
+    (pawn_desk.don_vi), còn cột `unit` trong sổ để NULL ở 992/999 dòng — điền đại "chỉ" vào đây là
+    khẳng định một đơn vị không có trong sổ, và nếu món đó là bạch kim/vàng trắng thì sai 3,75 lần.
     """
     return [dict(gold=(i["gold_code"] or ""), description=(i["description"] or ""),
-                 unit=(i["unit"] or "chỉ"), net=str(i["net_weight"] or 0)) for i in items]
+                 unit=(i["unit"] or ""), net=str(i["net_weight"] or 0)) for i in items]
+
+
+def _mon(ctx, layout):
+    """Danh sách DÒNG MÓN HÀNG — MỘT nguồn duy nhất cho cả thân biên nhận lẫn hai bảng cuống.
+
+    Tách ra làm hàm riêng chứ không chép lại ở chỗ thứ hai: cuống tiệm giữ và bản giao khách mà
+    liệt kê món khác nhau thì đối chiếu kiểu gì lúc khách tới chuộc.
+    """
+    ct = {**G.CT_MAC_DINH, **(layout.get(G.CT_KEY) or {})}
+    rows = _rows(ctx["items"])
+    if ct.get("mon_gop", 1):
+        return [desk.summary(rows)] if rows else []
+    return [desk.summary([r]) for r in rows]
+
+
+def _phien(ctx):
+    """Giao dịch GẦN NHẤT của phiếu → {nghiệp vụ} · giờ · tiền Thu/Chi cho bảng cuống.
+
+    Vì sao đọc giao dịch chứ không đọc trạng thái phiếu: cuống tiệm giữ là chứng từ của LƯỢT VIỆC
+    vừa làm (Cầm mới / Cầm thêm / Trả bớt / Gia hạn / Chuộc đồ / Thanh lý / Báo mất), không phải
+    ảnh chụp trạng thái. In lại tờ cũ vẫn ra lượt cuối — đúng ý.
+
+    Thu = tiền KHÁCH TRẢ (cd_payments direction='IN') · Chi = tiền TRẢ KHÁCH ('OUT'), đúng nghĩa
+    `received`/`paid` mà LOG_SQL của live_loans đang dùng cho màn Phiên giao dịch. Đừng đặt lại
+    nghĩa ở đây: hai màn hình nói ngược nhau về cùng một lượt tiền là hỏng đối soát.
+
+    ⚠ BỎ QUA nghiệp vụ 8 "Mở khóa báo mất" — GIỐNG mọi chỗ khác của hệ (live_loans lọc
+    `operation_id<>8` ở màn Phiên giao dịch). Lượt mở khóa ghi log với MỌI khoản tiền = 0 và không
+    sinh dòng cd_payments nào; lấy nó làm "lượt gần nhất" thì cuống in "Mở khóa báo mất" kèm dòng
+    Thu/Chi trống, trong khi lượt việc có tiền thật (vd "Cầm thêm · Chi 5.000.000") bị giấu mất.
+
+    Phiếu chưa có dòng log nào (kho cũ `pawn`, hoặc live tắt), hay đọc sổ hỏng → trả None và các ô
+    đó ĐỂ TRỐNG. Tuyệt đối không bịa: thà cuống thiếu một dòng còn hơn in sai nghiệp vụ lên chứng
+    từ. Cả trang in cũng không được chết vì một câu truy vấn phụ.
+    """
+    p = ctx["loan"]
+    try:
+        log = db.one("SELECT id,operation_id,happened_at,interest_from,due_at,days,interest,"
+                     "principal_change FROM cd_loan_logs"
+                     " WHERE loan_id=%s AND operation_id<>8"
+                     " ORDER BY happened_at DESC,id DESC LIMIT 1", (p["id"],))
+        if not log:
+            return None
+        t = db.one("SELECT COALESCE(SUM(IF(direction='IN',amount,0)),0) thu,"
+                   "COALESCE(SUM(IF(direction='OUT',amount,0)),0) chi"
+                   " FROM cd_payments WHERE log_id=%s", (log["id"],)) or {}
+    except Exception:
+        return None
+    # Giám đốc chốt 17/09/2026: BỎ hẳn nhãn "Thu/Chi:", chỉ in MỘT số theo dấu của nó —
+    #   ròng > 0 → "Thu <số>"   ·   ròng < 0 → "Chi <số>"   ·   = 0 → để trống, template bỏ cả dòng.
+    # Ròng = tiền khách trả − tiền trả khách trong CÙNG lượt việc (một lượt vừa thu vừa chi là
+    # chuyện thường: cầm thêm 700.000 nhưng khấu lãi 205.000 ⇒ thực chi 495.000).
+    rong = money(t.get("thu") or 0) - money(t.get("chi") or 0)
+    if rong > 0:
+        tien = "Thu " + _vnd(rong)
+    elif rong < 0:
+        tien = "Chi " + _vnd(-rong)
+    else:
+        tien = ""
+    luc = parse_date(log["happened_at"])
+    gio = log["happened_at"]
+    # SỐ NGÀY GIA HẠN THÊM — suy từ chính ba cột của dòng log, khỏi mở terms_json:
+    #   ngày tính lãi hiệu lực = interest_from + days  (đúng cách estimate() tính lãi)
+    #   gia hạn thêm            = due_at − ngày hiệu lực
+    # Đã đối chiếu 4 lượt gia hạn thật trong sổ: cả bốn đều ra +30 ngày, khớp kỳ hạn mặc định.
+    gia_han = 0
+    try:
+        if log["due_at"] and log["interest_from"]:
+            hieu_luc = parse_date(log["interest_from"]) + dt.timedelta(days=int(log["days"] or 0))
+            gia_han = (parse_date(log["due_at"]) - hieu_luc).days
+    except (TypeError, ValueError):
+        gia_han = 0
+    return {"log_id": log["id"],
+            "op": log["operation_id"],
+            "nghiep_vu": live.OPS.get(log["operation_id"], ""),
+            "luc": gio.strftime("%H:%M %d/%m/%Y") if hasattr(gio, "strftime") else str(luc),
+            "thu_chi": tien,
+            "ngay": int(log["days"] or 0),
+            "lai": money(log["interest"] or 0),
+            "doi_goc": money(log["principal_change"] or 0),
+            "gia_han": gia_han if gia_han > 0 else 0}
+
+
+def _bang(ctx, layout):
+    """HAI BẢNG CUỐNG — CÙNG MỘT bộ dữ liệu, hai bản giống hệt nhau (GĐ chốt 16/09/2026).
+
+    Dựng một lần rồi dùng cho cả hai khối: lệch nhau một chữ là hai nửa tờ giấy nói hai chuyện.
+    Cả hai khối đều TẮT thì khỏi dựng — riêng QR đã tốn một lượt vẽ SVG.
+
+    `ctx["phien"]` đã được route đọc SẴN (trước khi đọc bố cục chéo sang khj_bl, đúng thứ tự truy
+    vấn bắt buộc ghi ở đầu tệp); không có thì tự đọc — đường nào cũng phải ra tờ giấy.
+    """
+    if all(layout[k].get("an") for k in G.KHOI_BANG):
+        return {}
+    p, kh = ctx["loan"], ctx["customer"] or {}
+    phien = (ctx.get("phien") if "phien" in ctx else _phien(ctx)) or {}
+    try:
+        # Cùng luật với mã vạch: MẤT MÃ CÒN HƠN MẤT TỜ PHIẾU. svg_qr nạp segno lúc chạy, thiếu thư
+        # viện / hết bộ nhớ là nổ — template đã có sẵn {% if b.qr %} nên trả '' là tờ giấy vẫn ra.
+        qr = MV.svg_qr(p["sku"])
+    except Exception:
+        qr = ""
+    b = {"nghiep_vu": phien.get("nghiep_vu", ""),
+         "luc": phien.get("luc", ""),
+         # QR mang NGUYÊN mã phiếu kể cả chữ cái — khác mã vạch Code 39 chỉ mang phần chữ số.
+         "qr": qr,
+         "ma": p["sku"],
+         "ten": (kh.get("name") or "").strip(),
+         "dt": (kh.get("phone") or p.get("phone") or "").strip(),
+         "noi_dung": _mon(ctx, layout),
+         "thu_chi": phien.get("thu_chi", ""),
+         # Ô "Cầm" luôn là DƯ GỐC hiện tại của phiếu (GĐ chốt), không phải gốc ban đầu — kể cả khi
+         # khối `so_tien_so` ở thân phiếu đang được cấu hình in gốc ban đầu.
+         "cam": _vnd(p["principal_balance"])}
+    return {k: b for k in G.KHOI_BANG}
+
+
+TEN_TIEM = "CẦM ĐỒ KIM HẠNH 2"
+# Nghiệp vụ CÓ in khối tóm tắt giao dịch trên cuống (Giám đốc chốt 17/09/2026):
+#   2 Cầm thêm · 3 Trả bớt · 4 Gia hạn.
+# KHÔNG in: 1 Cầm mới (chưa có gì để tóm tắt) · 5 Chuộc đồ · 6 Thanh lý · 7 Báo mất (ba nghiệp vụ
+# này Giám đốc chốt là KHÔNG CẦN IN GIẤY) · 0 Hủy phiên · 8 Mở khóa báo mất.
+OP_CO_TOM_TAT = (2, 3, 4)
+
+
+def _che_sdt(sdt):
+    """Số điện thoại in trên chứng từ: giữ 3 số đầu + 3 số cuối, che 4 số giữa — '090****567'.
+
+    Tờ biên nhận đi theo món hàng vào tủ và khách cầm về; in trọn số là phát tán số khách. Giữ đủ
+    hai đầu để nhân viên đối chiếu nhanh với sổ, còn muốn số đầy đủ thì tra trong hệ thống.
+    """
+    so = re.sub(r"\D", "", str(sdt or ""))
+    return (so[:3] + "****" + so[-3:]) if len(so) >= 7 else ""
+
+
+def _ma_theo_doi(p, phien):
+    """Mã truy vết in trên cuống: '2609020839-977-3435-01' (Giám đốc chốt 17/09/2026).
+
+        <mã phiếu bỏ tiền tố KH2> - <loan_id> - <log_id của lượt việc> - <lần in thứ mấy>
+
+    Đây là thứ để lần ngược từ TỜ GIẤY về đúng lượt việc trong sổ: mã phiếu thôi thì chỉ tới được
+    phiếu, không biết tờ này in ra sau lượt nào và là bản in thứ mấy.
+    ⚠ LẦN IN = count_print + 1: cd_loans.count_print là số lần ĐÃ in, còn nút IN tăng nó lên SAU khi
+    trang đã dựng xong ⇒ tờ đang chuẩn bị ra là lần kế tiếp. Bấm in hai lần trên cùng một trang thì
+    hai tờ mang cùng số; mở lại trang mới ra số mới.
+    ⚠ Chỉ bỏ tiền tố 'KH2'; mã đời cũ 'CU…' giữ nguyên vì không có tiền tố đó.
+    """
+    ma = str(p.get("sku") or "").strip()
+    if ma.upper().startswith("KH2"):
+        ma = ma[3:]
+    return "%s-%s-%s-%02d" % (ma, p.get("id") or 0, (phien or {}).get("log_id") or 0,
+                              int(p.get("count_print") or 0) + 1)
+
+
+def _tom_tat_giao_dich(phien):
+    """Ba dòng tóm tắt lượt việc trên cuống (Giám đốc chốt 17/09/2026):
+
+        Trả bớt: 7.000.000 ₫        ← Gia hạn thì in "+30 ngày" thay cho số tiền
+        Số ngày cầm: 1 ngày
+        Tiền lời: 11.000 ₫
+
+    Nghiệp vụ ngoài danh sách OP_CO_TOM_TAT → KHÔNG in dòng nào (khối rỗng, template bỏ qua).
+    """
+    if not phien or phien.get("op") not in OP_CO_TOM_TAT:
+        return []
+    op = phien["op"]
+    if op == 4:
+        dau = "%s: +%d ngày" % (phien["nghiep_vu"], phien.get("gia_han") or 0)
+    else:
+        dau = "%s: %s ₫" % (phien["nghiep_vu"], _vnd(abs(phien.get("doi_goc") or 0)))
+    return [dau,
+            "Số ngày cầm: %d ngày" % (phien.get("ngay") or 0),
+            "Tiền lời: %s ₫" % _vnd(phien.get("lai") or 0)]
 
 
 def _noi_dung(ctx, layout):
     """Chữ đổ vào từng khối. Trả dict key → danh sách DÒNG (không có HTML, template tự thoát)."""
     p, kh, items = ctx["loan"], ctx["customer"] or {}, ctx["items"]
     ct = {**G.CT_MAC_DINH, **(layout.get(G.CT_KEY) or {})}
-    rows = _rows(items)
-    if ct.get("mon_gop", 1):
-        mon = [desk.summary(rows)] if rows else []
-    else:
-        mon = [desk.summary([r]) for r in rows]
+    phien = ctx.get("phien") if "phien" in ctx else _phien(ctx)
+    mon = _mon(ctx, layout)
     tien = p["original_principal"] if ct.get("tien") != "du_hien_tai" else p["principal_balance"]
     mo, den = parse_date(p["opened_at"]), parse_date(p["due_at"])
     ten = kh.get("name") or ""
-    trang_thai = LABEL.get(p["loan_state"], p["loan_state"] or "")
-    if p.get("receipt_lost"):
-        trang_thai += " · BÁO MẤT BIÊN NHẬN"
-
-    cuong = list(mon)
-    cuong.append("Lãi suất: %s%%/tháng" % (format(p["monthly_rate"], ".6f").rstrip("0").rstrip(".") if p["monthly_rate"] is not None else "—"))
-    cuong.append("Tủ: " + TU.get(str(p["safe"] or ""), str(p["safe"] or "—")))
-    if kh.get("phone") or p.get("phone"):
-        cuong.append("SĐT: " + (kh.get("phone") or p.get("phone")))
-    if p.get("note"):
-        cuong.append("Ghi chú: " + p["note"])
+    # Giám đốc chốt 17/09/2026: ô "Nhận của Ông/Bà" mang thêm SĐT đã che 4 số giữa.
+    che = _che_sdt(kh.get("phone") or p.get("phone"))
+    ten_sdt = (ten + " | " + che) if (ten and che) else (ten or che)
+    ma_theo_doi = _ma_theo_doi(p, phien)
 
     return {
-        "so_cuong_1": [p["sku"]],
-        "so_cuong_2": [p["sku"]],
-        "cuong_chi_tiet": cuong,
+        # Ba ô này in CÙNG một mã truy vết (Giám đốc chốt 17/09/2026) — trước đây in mã phiếu trần.
+        "so_cuong_1": [ma_theo_doi],
+        "so_cuong_2": [ma_theo_doi],
+        "cuong_chi_tiet": _tom_tat_giao_dich(phien),
         "ma_phieu": [p["sku"]],
-        "khach_ten": [ten],
+        "khach_ten": [ten_sdt],
         "khach_diachi": [kh.get("addr") or ""],
         "mon_hang": mon,
         "so_tien_so": [_vnd(tien)],
@@ -107,8 +275,13 @@ def _noi_dung(ctx, layout):
         "nam": [den.strftime("%Y")],
         "nhan_vien": [p.get("employee_name") or ""],
         "khach_ky": [ten],
-        "trang_thai": [trang_thai],
-        "giay_to": [("CCCD " + kh["cccd"]) if kh.get("cccd") else ""],
+        # Giám đốc chốt 17/09/2026: ô này là DẤU TÊN TIỆM cố định, không còn là trạng thái phiếu.
+        # ⚠ Hệ quả: dòng "BÁO MẤT BIÊN NHẬN" không còn xuất hiện trên tờ in — phiếu báo mất nay chỉ
+        # nhận biết trong hệ thống. Vẫn TẮT SẴN như trước; bật ở trang cấu hình nếu muốn đóng dấu.
+        "trang_thai": [TEN_TIEM],
+        # Cũng là mã truy vết như hai ô cuống (Giám đốc chốt 17/09/2026) — trước in "CCCD <số>".
+        # Bỏ in CCCD lên giấy cũng là bớt một chỗ phát tán giấy tờ tuỳ thân của khách.
+        "giay_to": [ma_theo_doi],
     }
 
 
@@ -124,9 +297,14 @@ def _anh(ctx, layout):
 
 
 def _khoi(ctx, layout):
-    """18 khối theo đúng thứ tự BLOCKS — template lặp danh sách này nên DOM luôn đủ data-gcd."""
+    """20 khối theo đúng thứ tự BLOCKS — template lặp danh sách này nên DOM luôn đủ data-gcd.
+
+    Ba loại khối: CHỮ (`dong`) · ẢNH mã vạch (`anh`) · BẢNG cuống (`bang`). Template chọn theo
+    đúng thứ tự đó, đừng đoán theo tên khoá.
+    """
     noi = _noi_dung(ctx, layout)
     anh = _anh(ctx, layout)
+    bang = _bang(ctx, layout)
     ra, tran = [], []
     for b in G.BLOCKS:
         dong = [d for d in noi.get(b["key"], []) if d not in (None, "")]
@@ -134,6 +312,7 @@ def _khoi(ctx, layout):
         if qua:
             tran.append(b["ten"])
         ra.append(dict(key=b["key"], ten=b["ten"], dong=dong, anh=anh.get(b["key"], ""),
+                       bang=bang.get(b["key"]),
                        cls="gcd-co-%d" % bac, an=bool(layout[b["key"]].get("an"))))
     return ra, tran
 
@@ -156,6 +335,23 @@ def _vach_hep(ctx, layout):
 
 def _css_url(nen):
     return url_for("gcd.mau_in_css", **({"nen": 1} if nen else {}))
+
+
+PHIEU_DONG = {"REDEEMED": "Phiếu đã CHUỘC ĐỒ", "LIQUIDATED": "Phiếu đã THANH LÝ"}
+
+
+def _khoa_in(p):
+    """Lý do KHÔNG cho in giấy cầm đồ; chuỗi rỗng = được in.
+
+    Chuộc đồ · Thanh lý · Báo mất không cần in giấy (GĐ chốt 17/09/2026). Xét TRẠNG THÁI PHIẾU
+    chứ không xét lượt gần nhất của _phien: _phien bỏ qua op 8, nên sau khi MỞ KHÓA báo mất lượt
+    gần nhất vẫn là op 7 — mà phiếu đã mở khóa thì phải in lại được. lost_locked đã tính đúng việc đó.
+    """
+    if p.get("loan_state") in PHIEU_DONG:
+        return PHIEU_DONG[p["loan_state"]] + " — không cần in giấy."
+    if live.lost_locked(p):
+        return "Phiếu đang KHÓA BÁO MẤT — mở khóa báo mất rồi mới in lại được."
+    return ""
 
 
 def _dung_trang(ctx, layout, nguon, nen=False, thuoc=False, may_tt=None, pdf=False,
@@ -182,7 +378,7 @@ def _dung_trang(ctx, layout, nguon, nen=False, thuoc=False, may_tt=None, pdf=Fal
         vach_thu=bool(vach and MV.VACH_HEP_TOI_THIEU_MM <= vach < MV.VACH_HEP_CAN_THU_MM),
         vach_toi_thieu=str(MV.VACH_HEP_TOI_THIEU_MM).replace(".", ","),
         vach_can_thu=str(MV.VACH_HEP_CAN_THU_MM).replace(".", ","),
-        inn=inn, ct=ct, may_tt=may_tt, pdf=pdf,
+        inn=inn, ct=ct, may_tt=may_tt, pdf=pdf, khoa_in=_khoa_in(p),
         lech_tien=lech_tien, goc=_vnd(p["original_principal"]), du=_vnd(p["principal_balance"]),
         warning=ctx["warning"], css_url=css_url, css_tinh_url=css_tinh_url,
         print_count_url=None if pdf else url_for("live.print_count", lid=lid),
@@ -193,8 +389,11 @@ def _dung_trang(ctx, layout, nguon, nen=False, thuoc=False, may_tt=None, pdf=Fal
 
 @bp.get("/bien-nhan/<int:lid>/giay")
 def giay(lid):
-    # 1) Phiếu + khách + món TRƯỚC.
+    # 1) Phiếu + khách + món TRƯỚC — KỂ CẢ sổ phiên cho bảng cuống: mọi truy vấn khj_cd phải
+    #    xong TRƯỚC lượt đọc chéo khj_bl ở bước 2. Đọc chéo mà làm hỏng connection dùng chung thì
+    #    câu SELECT nào chạy sau cũng chết, và bảng cuống sẽ mất nghiệp vụ/giờ mà không ai biết.
     ctx = live.receipt_context(lid)
+    ctx["phien"] = _phien(ctx)
     # 2) Bố cục CUỐI CÙNG, và mọi lỗi đã được nuốt bên trong gcd_layout.
     layout, nguon = G.doc_bo_cuc()
     nen = request.args.get("nen") == "1"
@@ -216,8 +415,14 @@ def in_may_chu(lid):
     thích ngắn để trang nói một dòng rồi mở hộp thoại in của trình duyệt. Người dùng luôn in được;
     khác biệt duy nhất là có phải tự chọn máy in hay không, nên đây KHÔNG phải trạng thái lỗi.
     """
-    # Thứ tự bắt buộc: phiếu + khách + món TRƯỚC, bố cục (đọc chéo khj_bl) CUỐI CÙNG.
+    # Thứ tự bắt buộc: mọi truy vấn khj_cd (phiếu + khách + món + sổ phiên) TRƯỚC, bố cục (đọc
+    # chéo khj_bl) CUỐI CÙNG.
     ctx = live.receipt_context(lid)
+    khoa = _khoa_in(ctx["loan"])
+    if khoa:
+        # Nút IN đã tắt trên trang; chặn cả ở đây để POST gõ tay cũng không làm hỏng tờ giấy in sẵn.
+        return {"ok": False, "khoa": True, "ly_do": khoa}
+    ctx["phien"] = _phien(ctx)
     layout, nguon = G.doc_bo_cuc()
     tt = M.kiem_tra(layout)
     if not tt["san_sang"]:

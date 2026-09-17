@@ -5,6 +5,18 @@ from decimal import Decimal, ROUND_HALF_UP
 from . import db, customer_master as master
 from .domain import BusinessError, decimal, money
 
+# ── LOẠI VÀNG HIỂN THỊ TRÊN BIÊN NHẬN CẦM ĐỒ — Giám đốc chốt 17/09/2026 ───────────────────────
+# mã trong sổ (đã hạ chữ thường) → (nhãn in trong ngoặc vuông, hậu tố đơn vị sau con số)
+# Sổ gom dữ liệu từ nhiều đời phần mềm nên CÙNG MỘT loại vàng có mấy cách viết; bảng này quy về
+# một nhãn duy nhất để tờ giấy không nói hai kiểu cho cùng một thứ.
+LOAI_VANG = {
+    "61": ("61", "c"), "610": ("61", "c"), "18k": ("61", "c"),
+    "98": ("98", "c"), "980": ("98", "c"), "24k": ("98", "c"),
+    "99": ("99", "c"), "9999": ("99", "c"), "n9999": ("99", "c"), "99.99": ("99", "c"),
+    "sjc": ("sjc", "c"), "pnj": ("sjc", "c"),
+    "bk": ("bk", "g"),
+}
+
 DDL = [
 '''CREATE TABLE IF NOT EXISTS khcd_pawn_desk (
  pawn_id INT NOT NULL PRIMARY KEY, items_json JSON NOT NULL,
@@ -50,8 +62,42 @@ def items(data, golds):
     return result
 
 
+def loai_vang(ma_vang):
+    """Mã vàng trong sổ → (NHÃN in trong ngoặc vuông, HẬU TỐ đơn vị). Giám đốc chốt 17/09/2026.
+
+        610 · 18k · 61        → [61]  · chỉ  → 'c'
+        980 · 24k · 98        → [98]  · chỉ  → 'c'
+        9999 · N9999 · 99.99 · 99 → [99]  · chỉ  → 'c'
+        sjc · pnj             → [sjc] · chỉ  → 'c'
+        bk                    → [bk]  · gram → 'g'
+        còn lại / không chắc  → giữ NGUYÊN mã, KHÔNG in đơn vị
+
+    VÌ SAO QUY VỀ MỘT NHÃN: sổ gom dữ liệu từ nhiều đời phần mềm nên cùng một loại vàng có mấy cách
+    viết (610 / 18k, 9999 / N9999 / 99.99…). Tờ biên nhận mà gọi cùng một thứ bằng hai tên thì lúc
+    khách tới chuộc, đối chiếu với món trong tủ là cãi nhau.
+
+    ⚠ ĐƠN VỊ: quyết theo MÃ VÀNG chứ KHÔNG theo cột `cd_loan_items.unit` — đo trên sổ thật có
+    992/999 dòng để cột đó NULL (toàn bộ từ phiếu chuyển đổi hệ cũ).
+    ⚠ KHÔNG ĐOÁN khi không chắc: trước 17/09 hàm này ép mọi đơn vị thiếu thành 'chỉ', tức ~99% biên
+    nhận in ra khẳng định một đơn vị không có trong sổ. Đoán sai lệch 3,75 lần (1 chỉ = 3,75 gram)
+    trên chứng từ cầm đồ — thà thiếu chữ còn hơn ghi sai.
+    ⚠ Thêm cách viết mới thì thêm vào LOAI_VANG, đừng rải điều kiện ra chỗ khác.
+    """
+    ma = str(ma_vang or "").strip()
+    return LOAI_VANG.get(ma.lower(), (ma, ""))
+
+
+def _mot_mon(r):
+    """Một dòng món → chuỗi in trên biên nhận. Nhãn và đơn vị do loai_vang() quyết (xem hàm đó)."""
+    if r['gold'] == 'KHAC':
+        return f"[KHÁC] {r['description']}"
+    nhan, dv = loai_vang(r['gold'])
+    so = Decimal(r['net']).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
+    return f"[{nhan}] {r['description']} {so:.2f}{dv}"
+
+
 def summary(rows):
-    return ' + '.join((f"[KHÁC] {r['description']}" if r['gold']=='KHAC' else f"[{r['gold'].upper()}] {r['description']} {Decimal(r['net']).quantize(Decimal('.01'),rounding=ROUND_HALF_UP):.2f}{'c' if r['unit']=='chỉ' else 'g'}") for r in rows)
+    return ' + '.join(_mot_mon(r) for r in rows)
 
 
 def payment(data, principal):

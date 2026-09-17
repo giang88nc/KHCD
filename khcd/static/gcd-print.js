@@ -99,6 +99,7 @@
         ket = await r.json();
       } finally { if (het) clearTimeout(het); }
       if (ket && ket.ok) noi(ket.thong_diep || 'Đã gửi tới máy in.', 'ok');
+      else if (ket && ket.khoa) noi(ket.ly_do, 'xam');   // phieu khong duoc in: KHONG roi ve hop thoai
       else roiVe((ket && ket.ly_do) || 'máy chủ không trả lời rõ');
     } catch (e) {
       roiVe(e && e.name === 'AbortError' ? 'máy chủ không phản hồi kịp' : 'không gọi được máy chủ');

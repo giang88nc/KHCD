@@ -227,7 +227,7 @@ def test_hai_nguong_khong_gop_lam_mot():
 def test_khoi_ma_vach_co_trong_blocks():
     m = G.mac_dinh()
     assert G.KHOI_MA_VACH == 'ma_phieu_vach'
-    assert len(G.BLOCKS) == 18
+    assert len(G.BLOCKS) == 20
     keys = [b['key'] for b in G.BLOCKS]
     assert keys.index(G.KHOI_MA_VACH) == keys.index('ma_phieu') - 1, 'Mã vạch phải đứng ngay TRƯỚC ô SỐ:'
     assert m[G.KHOI_MA_VACH] == {'left': 77.4, 'top': 5.6, 'w': 18.8, 'h': 6.0, 'fs': 8, 'an': 0}

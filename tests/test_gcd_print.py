@@ -10,7 +10,7 @@ import os
 
 import pytest
 
-from khcd import gcd_layout as G
+from khcd import gcd_layout as G, ma_vach as MV
 
 
 # ── 1. ĐỌC SỐ TIỀN BẰNG CHỮ ───────────────────────────────────────────────────────────────────
@@ -75,7 +75,7 @@ def test_doc_so_bien():
 # ── 2. MẶC ĐỊNH + GỘP BẢN LƯU ────────────────────────────────────────────────────────────────
 def test_mac_dinh_du_khoi():
     m = G.mac_dinh()
-    assert len(G.BLOCKS) == 18          # 17 khối chữ + khối ẢNH mã vạch (thêm 16/09/2026)
+    assert len(G.BLOCKS) == 20          # 17 chữ + 1 ẢNH mã vạch + 2 BẢNG cuống (16/09/2026)
     for b in G.BLOCKS:
         assert b['key'] in m and 'left' in m[b['key']] and 'an' in m[b['key']]
     assert m[G.IN_KEY]['kho'] == 'A5N'                 # KHÔNG phải "auto": tờ NGANG 210mm sẽ tràn
@@ -186,8 +186,9 @@ def test_bat_khoi_sat_mep():
     biên cứng 4,2–6,4 mm của laser/inkjet phổ thông. Trang xem trước phải nói ra."""
     m = G.mac_dinh()
     # 'giay_to' mặc định đã TẮT nên không báo; bật lên là báo ngay (đáy 97,1% ≈ 4,3 mm từ mép dưới).
-    assert 'Cửa hàng có giữ các giấy tờ' not in G.khoi_sat_mep(m)
-    assert 'Cửa hàng có giữ các giấy tờ' in G.khoi_sat_mep(G._gop(m, {'giay_to': {'an': 0}}))
+    ten_giay_to = G.BLOCK_MAP['giay_to']['ten']
+    assert ten_giay_to not in G.khoi_sat_mep(m)
+    assert ten_giay_to in G.khoi_sat_mep(G._gop(m, {'giay_to': {'an': 0}}))
     # 'Số phiếu — cuống trên' đỉnh 1,0% ≈ 1,5 mm từ mép trên — nằm sâu trong biên cứng.
     assert G.khoi_sat_mep(G.mac_dinh()) == ['Số phiếu — cuống trên']
     assert 'Nhận của Ông/Bà' not in G.khoi_sat_mep(G.mac_dinh())
@@ -417,3 +418,277 @@ def test_khong_doi_hanh_vi_trang_in_cu(client, phieu):
     html = client.get('/camdo/bien-nhan/%d/in' % phieu).get_data(as_text=True)
     assert 'BIÊN NHẬN CẦM ĐỒ' in html and 'Dư gốc hiện tại' in html
     assert '/camdo/bien-nhan/%d/giay' % phieu in html
+
+
+# ── BẢNG CUỐNG TIỆM GIỮ (GĐ chốt 16/09/2026) ──────────────────────────────────────────────────
+# Chạy được KHÔNG CẦN CSDL: _bang() là hàm thuần, chỉ đọc ctx đã dựng sẵn.
+_CTX_CUONG = {
+    'loan': {'id': 1, 'sku': 'KH22609020810', 'principal_balance': 25000000, 'phone': '0900000001'},
+    'customer': {'name': 'Khách Thử', 'phone': '0900000001'},
+    'items': [],
+}
+
+
+def _gia_lap_cuong(monkeypatch):
+    from khcd import gcd_print as P
+    monkeypatch.setattr(P, '_mon', lambda ctx, layout: ['[99] Nhẫn thử 3.00c'])
+    monkeypatch.setattr(P, '_phien', lambda ctx: {
+        'nghiep_vu': 'Cầm mới', 'luc': '14:35 15/09/2026', 'thu_chi': 'Chi 25.000.000'})
+    return P
+
+
+def test_bang_cuong_hai_ban_giong_het(monkeypatch):
+    """Hai bảng phải là CÙNG MỘT bộ dữ liệu: hai nửa tờ giấy nói hai chuyện là hỏng đối soát."""
+    P = _gia_lap_cuong(monkeypatch)
+    ra = P._bang(_CTX_CUONG, G.mac_dinh())
+    assert set(ra) == set(G.KHOI_BANG)
+    assert ra['cuong_bang_1'] is ra['cuong_bang_2']
+    b = ra['cuong_bang_1']
+    assert b['ma'] == 'KH22609020810' and b['ten'] == 'Khách Thử' and b['dt'] == '0900000001'
+    assert b['nghiep_vu'] == 'Cầm mới' and b['thu_chi'] == 'Chi 25.000.000'
+    assert b['cam'] == '25.000.000'                    # DƯ GỐC hiện tại, không phải gốc ban đầu
+    assert b['noi_dung'] == ['[99] Nhẫn thử 3.00c']
+    # QR mang NGUYÊN mã phiếu kể cả CHỮ CÁI — khác mã vạch Code 39 chỉ mang phần chữ số.
+    assert b['qr'].startswith('data:image/svg+xml') and b['qr'] == MV.svg_qr('KH22609020810')
+    assert MV.so_ma_vach('KH22609020810') == '22609020810'
+
+
+def test_bang_cuong_tat_ca_hai_thi_khong_ve_qr(monkeypatch):
+    """Tắt cả hai khối thì khỏi dựng — vẽ QR tốn một lượt, không việc gì trả giá cho khối display:none."""
+    P = _gia_lap_cuong(monkeypatch)
+    tat = G._gop(G.mac_dinh(), {'cuong_bang_1': {'an': 1}, 'cuong_bang_2': {'an': 1}})
+    assert P._bang(_CTX_CUONG, tat) == {}
+    mot = G._gop(G.mac_dinh(), {'cuong_bang_1': {'an': 1}})
+    assert set(P._bang(_CTX_CUONG, mot)) == set(G.KHOI_BANG)   # còn một khối bật thì vẫn dựng
+
+
+def test_phien_hong_thi_de_trong_chu_khong_bia(monkeypatch):
+    """Đọc sổ phiên hỏng → các ô đó TRỐNG. Thà cuống thiếu một dòng còn hơn in sai nghiệp vụ."""
+    from khcd import gcd_print as P, live_loans as live
+    monkeypatch.setattr(P, '_mon', lambda ctx, layout: [])
+    def no(_lid):
+        raise RuntimeError('mat ket noi')
+    monkeypatch.setattr(live, 'latest', no)
+    assert P._phien(_CTX_CUONG) is None
+    b = P._bang(_CTX_CUONG, G.mac_dinh())['cuong_bang_1']
+    assert b['nghiep_vu'] == '' and b['luc'] == '' and b['thu_chi'] == ''
+    assert b['ma'] == 'KH22609020810' and b['cam'] == '25.000.000'   # phần không phụ thuộc sổ VẪN in
+
+
+def test_phien_khong_co_dong_log_nao(monkeypatch):
+    from khcd import gcd_print as P, live_loans as live
+    monkeypatch.setattr(live, 'latest', lambda _lid: None)
+    assert P._phien(_CTX_CUONG) is None
+
+
+def test_template_cuong_render_duoc_bang_jinja():
+    """Vòng lặp khối bên trang in dùng {% with %} + {% include %} của Jinja2 — kiểm THẬT.
+
+    Bài kiểm khối/CSS không chạm tới template, mà lỗi cú pháp Jinja chỉ lộ ra lúc IN: nhân viên
+    bấm IN, trang 500, tờ giấy in sẵn đã nằm trong máy.
+    """
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    moi_truong = Environment(loader=FileSystemLoader(
+        str(Path(__file__).resolve().parent.parent / 'khcd' / 'templates')), autoescape=True)
+    khoi = [dict(key='cuong_bang_1', anh='', dong=[], cls='gcd-co-1', an=False, bang=dict(
+        nghiep_vu='Cầm mới', luc='14:35 15/09/2026', qr='data:image/svg+xml;charset=utf-8,x',
+        ma='KH22609020810', ten='Khách Thử', dt='0900000001',
+        noi_dung=['[99] Nhẫn thử 3.00c'], thu_chi='Chi 25.000.000', cam='25.000.000'))]
+    ra = moi_truong.from_string(
+        '{% for b in khoi %}{% if b.bang %}<div class="gcd-cuong" data-gcd="{{ b.key }}">'
+        '{% with b=b.bang %}{% include "_gcd_cuong.html" %}{% endwith %}</div>{% endif %}{% endfor %}'
+    ).render(khoi=khoi)
+    assert 'data-gcd="cuong_bang_1"' in ra and 'class="gcd-cuong__qr"' in ra
+    assert 'Cầm mới, 14:35 15/09/2026' in ra
+    assert 'KH22609020810' in ra and 'Khách Thử' in ra and '0900000001' in ra
+    # GĐ chốt 17/09: bỏ hẳn nhãn 'Thu/Chi:', chỉ còn một số tự nói hướng của nó.
+    assert 'Thu/Chi:' not in ra and 'Chi 25.000.000' in ra
+    # Nhãn dòng tiền cuối do Giám đốc chỉnh chữ (17/09 đổi 'Cầm:' → 'Tiền gốc:') — kiểm theo
+    # CẤU TRÚC: hai dòng tiền, số dư gốc nằm trong <b>.
+    assert ra.count('class="gcd-cuong__tien"') == 2 and '<b>25.000.000</b>' in ra
+    assert '[99] Nhẫn thử 3.00c' in ra
+    assert 'border' not in ra          # KHÔNG VIỀN: markup không được tự vẽ đường kẻ nào
+
+
+def test_than_bang_cuong_giong_het_ban_khbl():
+    """Thân bảng cuống hai kho phải giống TỪNG KÝ TỰ — chỉ khối chú thích đầu tệp được khác."""
+    from pathlib import Path
+    goc = Path(__file__).resolve().parent.parent
+    cd = (goc / 'khcd' / 'templates' / '_gcd_cuong.html').read_text(encoding='utf-8')
+    bl_p = Path('D:/PYTHON/KHBL/templates/pos/_gcd_cuong.html')
+    if not bl_p.exists():
+        pytest.skip('Không thấy kho KHBL trên máy này.')
+    bl = bl_p.read_text(encoding='utf-8')
+    than_cd = cd.split('#}', 1)[-1].lstrip()
+    than_bl = bl.split('{% endcomment %}', 1)[-1].lstrip()
+    assert than_cd.startswith('{% if b.nghiep_vu') and 'gcd-cuong__doc' in than_cd
+    assert than_cd == than_bl
+
+
+def test_phien_bo_qua_nghiep_vu_mo_khoa_bao_mat(monkeypatch):
+    """Lượt 'Mở khóa báo mất' (op 8) ghi log với mọi khoản tiền = 0 và KHÔNG sinh cd_payments.
+
+    Lấy nó làm 'lượt gần nhất' thì cuống in 'Mở khóa báo mất' kèm dòng Thu/Chi trống, giấu mất lượt
+    việc có tiền thật. Cả hệ đều lọc operation_id<>8 — đường in phải lọc y vậy.
+    """
+    from khcd import db, gcd_print as P
+    cau = []
+    def gia(sql, args=None):
+        cau.append(' '.join(sql.split()))
+        if 'cd_loan_logs' in sql:
+            return None
+        return {}
+    monkeypatch.setattr(db, 'one', gia)
+    assert P._phien(_CTX_CUONG) is None
+    assert any('operation_id<>8' in c.replace(' ', '') for c in cau), cau
+
+
+def test_bang_cuong_rong_khong_in_dau_phay_tro(monkeypatch):
+    """RENDER THẬT với ba ô rỗng: không được ra dấu phẩy trơ, không được ra nhãn Thu/Chi không số.
+
+    Bài kiểm soi DICT không bắt được lỗi này — nó nằm trong template.
+    """
+    from jinja2 import Environment, FileSystemLoader
+    from pathlib import Path
+    from khcd import gcd_print as P, live_loans as live
+    monkeypatch.setattr(P, '_mon', lambda ctx, layout: [])
+    monkeypatch.setattr(live, 'latest', lambda _lid: None)
+    monkeypatch.setattr(P, '_phien', lambda ctx: None)
+    b = P._bang(_CTX_CUONG, G.mac_dinh())['cuong_bang_1']
+    moi_truong = Environment(loader=FileSystemLoader(
+        str(Path(__file__).resolve().parent.parent / 'khcd' / 'templates')), autoescape=True)
+    ra = moi_truong.get_template('_gcd_cuong.html').render(b=b)
+    assert 'gcd-cuong__doc' not in ra, 'Ô nghiệp vụ rỗng thì phải BỎ HẲN cột dọc, không in dấu phẩy'
+    assert 'Thu/Chi:' not in ra, 'Không có số thì bỏ hẳn dòng, không in nhãn trơ'
+    # phần không phụ thuộc sổ VẪN in: còn đúng MỘT dòng tiền (dư gốc), dòng thu/chi đã bỏ
+    assert ra.count('class="gcd-cuong__tien"') == 1 and '<b>25.000.000</b>' in ra
+    assert b['ma'] in ra
+
+
+def test_buoc_nhay_cuong_khop_ban_khbl():
+    """Hằng bước nhảy hai nửa cuống phải khớp KHBL từng số — nó quyết định chỗ đặt bảng dưới."""
+    from pathlib import Path
+    import ast
+    assert abs(G.BUOC_CUONG_PCT - 46.81) < 0.005
+    b1, b2 = G.BLOCK_MAP['cuong_bang_1'], G.BLOCK_MAP['cuong_bang_2']
+    assert abs((b2['top'] - b1['top']) - G.BUOC_CUONG_PCT) <= 0.02
+    p = Path('D:/PYTHON/KHBL/apps/pos/gcd_layout.py')
+    if not p.exists():
+        pytest.skip('Không thấy kho KHBL trên máy này.')
+    cay = ast.parse(p.read_text(encoding='utf-8'))
+    for n in cay.body:
+        if isinstance(n, ast.Assign) and getattr(n.targets[0], 'id', '') == 'BUOC_CUONG_PCT':
+            assert ast.literal_eval(n.value) == G.BUOC_CUONG_PCT
+            break
+    else:
+        raise AssertionError('KHBL chưa khai BUOC_CUONG_PCT')
+
+
+# ── ĐƠN VỊ TRỌNG LƯỢNG + DÒNG TIỀN (Giám đốc chốt 17/09/2026) ─────────────────────────────────
+def test_loai_vang_nhan_va_don_vi():
+    """Quy tắc Giám đốc chốt 17/09/2026 — nhãn quy về MỘT cách viết, đơn vị theo mã."""
+    from khcd import pawn_desk as D
+    for ma in ('610', '18k', '61', ' 18K '):
+        assert D.loai_vang(ma) == ('61', 'c'), ma
+    for ma in ('980', '24k', '98'):
+        assert D.loai_vang(ma) == ('98', 'c'), ma
+    for ma in ('9999', 'N9999', '99.99', '99'):
+        assert D.loai_vang(ma) == ('99', 'c'), ma
+    for ma in ('sjc', 'SJC', 'pnj', 'PNJ'):
+        assert D.loai_vang(ma) == ('sjc', 'c'), ma
+    assert D.loai_vang('bk') == ('bk', 'g') and D.loai_vang('BK') == ('bk', 'g')
+    # Không thuộc bảng → GIỮ NGUYÊN mã, KHÔNG in đơn vị (không đoán).
+    for ma in ('vt', '#', 'khong-co-thuc'):
+        assert D.loai_vang(ma) == (ma, ''), ma
+    assert D.loai_vang('') == ('', '') and D.loai_vang(None) == ('', '')
+
+
+def test_summary_quy_ve_mot_nhan_va_khong_doan_don_vi():
+    """Cùng một loại vàng viết mấy kiểu vẫn ra MỘT nhãn; mã lạ thì không bịa đơn vị."""
+    from khcd import pawn_desk as D
+    mon = lambda g: dict(gold=g, description='Nhẫn thử', unit='', net='3')
+    assert D.summary([mon('99')]) == '[99] Nhẫn thử 3.00c'
+    assert D.summary([mon('N9999')]) == '[99] Nhẫn thử 3.00c'      # cùng loại, cùng nhãn
+    assert D.summary([mon('18k')]) == '[61] Nhẫn thử 3.00c'
+    assert D.summary([mon('24k')]) == '[98] Nhẫn thử 3.00c'
+    assert D.summary([mon('pnj')]) == '[sjc] Nhẫn thử 3.00c'
+    assert D.summary([mon('bk')]) == '[bk] Nhẫn thử 3.00g'
+    assert D.summary([mon('vt')]) == '[vt] Nhẫn thử 3.00'          # chưa chắc → bỏ đơn vị
+    assert D.summary([mon('99'), mon('bk')]) == '[99] Nhẫn thử 3.00c + [bk] Nhẫn thử 3.00g'
+    assert D.summary([dict(gold='KHAC', description='Đồng hồ', unit='món', net='0')]) == '[KHÁC] Đồng hồ'
+
+
+def test_dong_tien_theo_dau_khong_con_nhan(monkeypatch):
+    from datetime import datetime as dtm
+    """Ròng > 0 → 'Thu …' · < 0 → 'Chi …' · = 0 → để trống (template bỏ luôn dòng)."""
+    from khcd import db, gcd_print as P
+    def gia(thu, chi):
+        def mot(sql, args=None):
+            if 'cd_loan_logs' in sql:
+                return {'id': 1, 'operation_id': 1, 'happened_at': dtm(2026, 9, 15, 14, 35),
+                        'interest_from': dtm(2026, 9, 14), 'due_at': dtm(2026, 10, 14),
+                        'days': 1, 'interest': 11000, 'principal_change': -7000000}
+            return {'thu': thu, 'chi': chi}
+        return mot
+    monkeypatch.setattr(db, 'one', gia(1500000, 0))
+    assert P._phien(_CTX_CUONG)['thu_chi'] == 'Thu 1.500.000'
+    monkeypatch.setattr(db, 'one', gia(0, 25000000))
+    assert P._phien(_CTX_CUONG)['thu_chi'] == 'Chi 25.000.000'
+    # Một lượt vừa thu vừa chi: in SỐ RÒNG (cầm thêm 700.000, khấu lãi 205.000 ⇒ thực chi 495.000)
+    monkeypatch.setattr(db, 'one', gia(205000, 700000))
+    assert P._phien(_CTX_CUONG)['thu_chi'] == 'Chi 495.000'
+    monkeypatch.setattr(db, 'one', gia(0, 0))
+    assert P._phien(_CTX_CUONG)['thu_chi'] == ''
+
+
+# ── KHÓA IN: Chuộc đồ · Thanh lý · Báo mất không cần in giấy (GĐ chốt 17/09/2026) ──────────────
+
+def _p(state='ACTIVE', mat=0, terms='{}'):
+    return {'loan_state': state, 'receipt_lost': mat, 'terms_json': terms}
+
+
+def test_khoa_in_theo_trang_thai_phieu():
+    from khcd import gcd_print as P
+    assert P._khoa_in(_p()) == ''
+    assert 'CHUỘC ĐỒ' in P._khoa_in(_p('REDEEMED'))
+    assert 'THANH LÝ' in P._khoa_in(_p('LIQUIDATED'))
+    assert 'BÁO MẤT' in P._khoa_in(_p(mat=1))
+    # Báo mất đã MỞ KHÓA → in lại được.
+    assert P._khoa_in(_p(mat=1, terms='{"lost_unlocked": true}')) == ''
+
+
+def test_in_may_chu_tu_choi_phieu_khoa_truoc_khi_doc_bo_cuc(app, monkeypatch):
+    from khcd import gcd_print as P
+    monkeypatch.setattr(P.live, 'receipt_context', lambda lid: {'loan': _p('REDEEMED')})
+    def cam(*a, **k):
+        raise AssertionError('không được đọc bố cục / gửi máy in cho phiếu đã khóa in')
+    monkeypatch.setattr(P.G, 'doc_bo_cuc', cam)
+    monkeypatch.setattr(P.M, 'in_ngay', cam)
+    with app.test_request_context('/camdo/bien-nhan/1/in-may-chu', method='POST'):
+        kq = P.in_may_chu.__wrapped__(1) if hasattr(P.in_may_chu, '__wrapped__') else P.in_may_chu(1)
+    assert kq['ok'] is False and kq['khoa'] is True and 'CHUỘC ĐỒ' in kq['ly_do']
+
+
+def _dat_trang_thai(app, lid, state, mat=0, terms='{}'):
+    from khcd import db
+    with app.app_context():
+        db.execute('UPDATE cd_loans SET loan_state=%s,receipt_lost=%s,terms_json=%s WHERE id=%s',
+                   (state, mat, terms, lid))
+
+
+@pytest.mark.parametrize('state,mat,terms', [
+    ('REDEEMED', 0, '{}'), ('LIQUIDATED', 0, '{}'), ('ACTIVE', 1, '{}')])
+def test_trang_in_tat_nut_in_khi_khoa(client, phieu, app, state, mat, terms):
+    _dat_trang_thai(app, phieu, state, mat, terms)
+    html = client.get('/camdo/bien-nhan/%d/giay' % phieu).get_data(as_text=True)
+    assert 'id="gcd-nut-khoa" disabled' in html
+    assert 'id="tracked-print-button"' not in html and 'id="gcd-nut-in"' not in html
+    assert 'KHÔNG IN:' in html
+
+
+def test_bao_mat_da_mo_khoa_van_in_duoc(client, phieu, app):
+    _dat_trang_thai(app, phieu, 'ACTIVE', 1, '{"lost_unlocked": true}')
+    html = client.get('/camdo/bien-nhan/%d/giay' % phieu).get_data(as_text=True)
+    assert 'gcd-nut-khoa' not in html and 'KHÔNG IN:' not in html
+    assert 'id="tracked-print-button"' in html or 'id="gcd-nut-in"' in html

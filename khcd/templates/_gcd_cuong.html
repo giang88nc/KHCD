@@ -1,0 +1,15 @@
+{# BẢNG CUỐNG TIỆM GIỮ — BẢN SAO của KHBL templates/pos/_gcd_cuong.html. Hai tệp chỉ được khác nhau ĐÚNG khối chú thích đầu tệp (bên đó là cú pháp chú thích của Django, bên này của Jinja2); phần THÂN bên dưới phải GIỐNG TỪNG KÝ TỰ — smoke_gcd cắt chú thích rồi so, lệch là FAIL. Lý do khắt khe: bên kia là bản XEM TRƯỚC để Giám đốc căn, bên này là tờ IN THẬT. KHÔNG CÓ VIỀN: mọi đường kẻ do CSS_CUONG cố ý bỏ. Ô trống thì BỎ HẲN DÒNG chứ không in nhãn trơ — xem chú thích bên KHBL. #}
+{% if b.nghiep_vu or b.luc %}<div class="gcd-cuong__doc">{{ b.nghiep_vu }}{% if b.nghiep_vu and b.luc %}, {% endif %}{{ b.luc }}</div>{% endif %}
+<div class="gcd-cuong__than">
+ <div class="gcd-cuong__dau">
+  {% if b.qr %}<img class="gcd-cuong__qr" src="{{ b.qr }}" draggable="false" alt="QR mã phiếu {{ b.ma }}">{% endif %}
+  <div class="gcd-cuong__ds">
+   <b>{{ b.ma }}</b>
+   <span>{{ b.ten }}</span>
+   <span>{{ b.dt }}</span>
+  </div>
+ </div>
+ <div class="gcd-cuong__noi">{% for d in b.noi_dung %}<div>{{ d }}</div>{% endfor %}</div>
+ {% if b.thu_chi %}<div class="gcd-cuong__tien"><span>{{ b.thu_chi }}</span></div>{% endif %}
+ <div class="gcd-cuong__tien"><span>Tiền gốc:</span><b>{{ b.cam }}</b></div>
+</div>

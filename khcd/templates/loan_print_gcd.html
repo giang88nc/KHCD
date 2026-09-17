@@ -13,6 +13,10 @@
   Bo thanh cong cu, bo JS, bo favicon; hai the <link> tro vao TEP NAM CANH TRANG trong thu muc tam
   (Edge nap qua file:///). Phan TO GIAY khong doi mot ky tu — mot ban ve duy nhat cho ca ba duong.
 
+  khoa_in (chuoi ly do, gcd_print._khoa_in): phieu CHUOC DO / THANH LY / dang KHOA BAO MAT thi
+  KHONG in giay -> nut id=gcd-nut-khoa disabled, KHONG JS nao gan vao (ap() cua gcd-print.js se
+  bat lai nut neu dung id cu). Bao mat da MO KHOA thi in lai binh thuong.
+
   NUT IN CO HAI THAN PHAN, CHON O SERVER chu KHONG doi o trinh duyet:
     may_tt.san_sang = False (hom nay) -> id=tracked-print-button: receipt-print.js dem luot roi
       goi window.print() NGAY. Day la DUONG CHAY THAT HANG NGAY, phai muot nhu truoc.
@@ -55,7 +59,9 @@
 {% if not pdf %}
 <div class="gcd-thanh no-print">
  {% if not nen and not thuoc %}
-   {% if may_tt and may_tt.san_sang %}
+   {% if khoa_in %}
+ <button class="gcd-chinh" type="button" id="gcd-nut-khoa" disabled title="{{ khoa_in }}">IN PHIẾU</button>
+   {% elif may_tt and may_tt.san_sang %}
  <button class="gcd-chinh" type="button" id="gcd-nut-in" data-url="{{ print_count_url }}"
          data-may-url="{{ may_url }}" data-csrf="{{ session.csrf }}">IN PHIẾU</button>
    {% else %}
@@ -70,6 +76,10 @@
  {% if not thuoc %}<a href="{{ print_url }}?thuoc=1">In thước căn máy</a>{% endif %}
  <a href="{{ detail_url }}">Bản in cũ (A4)</a>
 </div>
+{% endif %}
+
+{% if khoa_in and not pdf %}
+<p class="gcd-bao gcd-bao-xam no-print" id="gcd-bao-khoa">KHÔNG IN: {{ khoa_in }}</p>
 {% endif %}
 
 <p class="gcd-bao gcd-bao-do no-print" id="gcd-bao-bocuc" hidden>
@@ -136,6 +146,8 @@
   {% endif %}
   {% for b in khoi %}{% if b.anh %}
   <img class="gcd-anh" data-gcd="{{ b.key }}" src="{{ b.anh }}" draggable="false" alt="Mã vạch Code 39 của số biên nhận {{ loan.sku }}">
+  {% elif b.bang %}
+  <div class="gcd-cuong" data-gcd="{{ b.key }}">{% with b=b.bang %}{% include "_gcd_cuong.html" %}{% endwith %}</div>
   {% else %}
   <div class="gcd-o {{ b.cls }}" data-gcd="{{ b.key }}">{% for d in b.dong %}<span>{{ d }}</span>{% endfor %}</div>
   {% endif %}{% endfor %}

@@ -34,7 +34,10 @@ from flask import current_app
 from . import db
 
 KEY = "gcd_layout"
-NHO_GIAY = 120                             # nhớ tạm bố cục trong tiến trình (giây)
+# Bước nhảy hai nửa cuống, ĐO BẰNG MÁY trên static/img/GCD.jpg (tâm mực hai chữ "SỐ:" ở 3,25% và
+# 50,06% chiều cao). Phải khớp hằng cùng tên bên apps/pos/gcd_layout.py của KHBL.
+BUOC_CUONG_PCT = 46.81
+NHO_GIAY = 120                           # nhớ tạm bố cục trong tiến trình (giây)
 TEP_NHO = "gcd_layout.json"                 # bản chép dự phòng trong instance/
 
 # ── 18 KHỐI — đo trực tiếp trên ảnh static/img/GCD.jpg (2470×1724) ────────────────────────────
@@ -50,6 +53,18 @@ BLOCKS = [
     {"key": "so_cuong_1",     "ten": "Số phiếu — cuống trên",      "left": 5.6,  "top": 1.0,  "w": 22,   "h": 3.2,  "fs": 8,    "an": 0},
     {"key": "so_cuong_2",     "ten": "Số phiếu — cuống dưới",      "left": 5.6,  "top": 46.2, "w": 22,   "h": 3.2,  "fs": 8,    "an": 0},
     {"key": "cuong_chi_tiet", "ten": "Chi tiết cuống (tuỳ chọn)",  "left": 2.5,  "top": 8,    "w": 25,   "h": 37,   "fs": 6.5,  "an": 1},
+    # HAI BẢNG CUỐNG (GĐ chốt 16/09/2026) — hai BẢN GIỐNG HỆT nhau: xé đôi cuống thì mỗi nửa vẫn
+    # mang đủ thông tin, một bản gắn theo món hàng, một bản lưu sổ. Khối này chứa BẢNG chứ không
+    # chứa chữ: gcd_print._bang() dựng dict, template đổ ra qua _gcd_cuong.html.
+    # Tờ in sẵn có ĐÚNG HAI chữ "SỐ:" trên cuống — đó là hai nửa xé. Hai bảng cách nhau ĐÚNG BẰNG
+    # khoảng cách hai chữ đó: BUOC_CUONG_PCT = 46,81% (ĐO BẰNG MÁY trên GCD.jpg 16/09/2026 — tâm mực
+    # ở 3,25% và 50,06%). KHÔNG phải 45,2% như cặp so_cuong_1/so_cuong_2 đang dùng: cặp đó lệch 2,2mm
+    # so với chữ in sẵn, chưa sửa vì là bố cục ĐANG CHẠY THẬT và Giám đốc đã lưu bản riêng.
+    # Bản trên bắt đầu 13,5%, tức NGAY DƯỚI khối chữ in sẵn "DNTN… / KIM HẠNH II" (đáy đo được 12,06%).
+    # ⚠ KHÔNG VIỀN (GĐ chốt): CSS_CUONG không vẽ một đường kẻ nào.
+    # Số đo phải khớp TỪNG THUỘC TÍNH với KHBL — cái đi qua pmv_state là nguyên cụm JSON của khối.
+    {"key": "cuong_bang_1",   "ten": "Bảng cuống — bản trên",      "left": 3.0,  "top": 13.5, "w": 26.0, "h": 33.0, "fs": 7,    "an": 0},
+    {"key": "cuong_bang_2",   "ten": "Bảng cuống — bản dưới",      "left": 3.0,  "top": 60.3, "w": 26.0, "h": 33.0, "fs": 7,    "an": 0},
     # B. THÂN PHẢI — biên nhận giao khách
     # MÃ VẠCH Code 39 của SỐ BIÊN NHẬN (GĐ yêu cầu 16/09/2026). Khối này chứa ẢNH chứ không chứa
     # chữ: gcd_print._khoi() gắn thêm data URI PNG do khcd/ma_vach.py vẽ, template đổ ra thẻ <img>.
@@ -86,7 +101,7 @@ BLOCKS = [
     {"key": "khach_ky",       "ten": "Tên khách dưới chữ ký",      "left": 33.0, "top": 59.5, "w": 18.0, "h": 3.2,  "fs": 8,    "an": 1},
     {"key": "trang_thai",     "ten": "Dấu trạng thái / BÁO MẤT",   "left": 34.0, "top": 62.5, "w": 60.0, "h": 4.0,  "fs": 10,   "an": 1},
     # TẮT SẴN: đáy 97,1% ≈ cách mép dưới 4,3 mm — nằm trong biên cứng 4,2–6,4 mm của laser/inkjet.
-    {"key": "giay_to",        "ten": "Cửa hàng có giữ các giấy tờ","left": 55.5, "top": 94.1, "w": 31.8, "h": 3.0,  "fs": 8,    "an": 1},
+    {"key": "giay_to",        "ten": "Mã truy vết (ô Giấy tờ)","left": 55.5, "top": 94.1, "w": 31.8, "h": 3.0,  "fs": 8,    "an": 1},
 ]
 BLOCK_MAP = {b["key"]: b for b in BLOCKS}
 
@@ -94,6 +109,8 @@ BLOCK_MAP = {b["key"]: b for b in BLOCKS}
 # Khai thành hằng để không chỗ nào phải gõ lại chuỗi "ma_phieu_vach".
 KHOI_MA_VACH = "ma_phieu_vach"
 KHOI_ANH = (KHOI_MA_VACH,)
+# Khối chứa BẢNG (cuống tiệm giữ) — gcd_print gắn dict, template đổ ra qua _gcd_cuong.html.
+KHOI_BANG = ("cuong_bang_1", "cuong_bang_2")
 
 # ⚠ CHUỖI NÀY PHẢI GIỐNG TỪNG KÝ TỰ apps/pos/gcd_layout.py::CSS_ANH BÊN KHBL.
 # Đây là hình dáng ẢNH mã vạch — thứ quyết định bản xem trước bên KHBL và tờ in ra bên KHCD có
@@ -105,6 +122,28 @@ KHOI_ANH = (KHOI_MA_VACH,)
 # tests/test_gcd_ma_vach.py đối chiếu từng ký tự với mã nguồn KHBL và FAIL nếu lệch.
 CSS_ANH = (".gcd-anh{display:block!important;padding:0!important;background:#fff;"
            "object-fit:fill;image-rendering:pixelated}")
+
+# ⚠ CHUỖI NÀY PHẢI GIỐNG TỪNG KÝ TỰ apps/pos/gcd_layout.py::CSS_CUONG BÊN KHBL.
+# Hình dáng HAI BẢNG CUỐNG tiệm giữ — cùng lý do với CSS_ANH: rule phải do css() SINH RA để bản
+# xem trước bên KHBL và tờ in ra bên này không thể lệch nhau.
+# KHÔNG CÓ VIỀN: Giám đốc chốt border=none ngày 16/09/2026; mọi đường kẻ vắng mặt là CÓ CHỦ ĐÍCH.
+# Nhãn dọc co theo `em` chứ không theo biến CSS — css() bên này không sinh --gcd-fs như bên KHBL.
+# tests/test_gcd_ma_vach.py đối chiếu từng ký tự với mã nguồn KHBL và FAIL nếu lệch.
+CSS_CUONG = (
+    ".gcd-a5 .gcd-cuong{z-index:1}"
+    ".gcd-cuong{display:flex!important;flex-direction:row;align-items:stretch;gap:1.2mm;"
+    "border:none!important;padding:0!important;overflow:hidden;line-height:1.15}"
+    ".gcd-cuong__doc{flex:0 0 auto;writing-mode:vertical-rl;transform:rotate(180deg);"
+    "white-space:nowrap;text-align:center;font-size:1.3em}"
+    ".gcd-cuong__than{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:.9mm}"
+    ".gcd-cuong__dau{display:flex;flex-direction:row;align-items:flex-start;gap:1.2mm}"
+    ".gcd-cuong__qr{flex:0 0 32%;aspect-ratio:1/1;height:auto;display:block;background:#fff}"
+    ".gcd-cuong__ds{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:1.5mm; overflow-wrap:anywhere;word-break:break-word;margin-top: 10px;}"
+    ".gcd-cuong__noi{flex:1 1 auto;min-height:0;overflow-wrap:anywhere;word-break:break-word}"
+    ".gcd-cuong__tien{display:flex;flex-direction:row;gap:1.2mm;justify-content:center}"
+    ".gcd-cuong__tien span{flex:0 0 auto}"
+    ".gcd-cuong b{font-weight:700; font-size: 16px;}"
+)
 
 # Khối chữ tự do → server tự chọn bậc co chữ (không dùng JS: CSP chặn, và co bằng JS lúc in là không kịp).
 CO_CHU = ("mon_hang", "khach_diachi", "so_tien_chu")
@@ -431,7 +470,7 @@ def css(layout=None):
     layout = layout or load()
     w, h = kho_giay(layout)
     out = [".gcd-a5{position:relative!important;width:%smm!important;max-width:100%%;height:auto;aspect-ratio:%s/%s}"
-           % (_so(w), _so(w), _so(h)), CSS_ANH]
+           % (_so(w), _so(w), _so(h)), CSS_ANH, CSS_CUONG]
     for b in BLOCKS:
         v = layout[b["key"]]
         sel = _sel(b["key"])
