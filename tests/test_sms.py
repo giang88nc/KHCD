@@ -63,6 +63,7 @@ def test_phan_loai_sdt_xung_ho_ten(so_zns):
     assert (d, local, masked) == ('84912345678', '0912345678', '091***678') and len(h) == 64
     assert S.chuan_hoa_sdt('+84912345678')[1] == '0912345678' and S.chuan_hoa_sdt('02838123456') is None and S.chuan_hoa_sdt('') is None
     assert S.dedupe(1, 10, 'nhac1') != S.dedupe(1, 11, 'nhac1'), 'khóa chống trùng phải theo CHU KỲ'
+    assert S.che_ma('KH22604018242') == 'KH******18242' and S.che_ma('KH******18242') == 'KH******18242' and S.che_ma('CU2606000000625') == 'CU********00625' and S.che_ma('AB123') == '**123' and S.che_ma('') == ''
 
 
 def test_quy_tac_luu_rang_buoc_va_bien_notes(so_zns, client, monkeypatch):
@@ -182,7 +183,7 @@ def test_tat_hoan_nhac_va_doi_soat(so_zns, client):
         db.execute("INSERT INTO zalo_messages (oa_account_id,external_template_id,channel,source_type,trn_id,recipient_ciphertext,recipient_masked,recipient_hash,template_data_json,tracking_id,dedupe_key,status,attempt_count,created_at,updated_at) "
                    "VALUES (1,'635511','phone','khcd_pawn','X','x','090***001','h','{}','trk_mo_coi','dk_mo_coi','queued',0,NOW(),NOW())")
     html = client.get(BASE + '?tab=loi').get_data(as_text=True)
-    assert 'ĐỐI SOÁT' in html and 'mất bên sổ KHBL' in html and q(app, "SELECT COUNT(*) n FROM cd_sms_log WHERE status='missing'")[0]['n'] == 1
+    assert 'ĐỐI SOÁT' in html and 'Mất bên sổ KHBL' in html and q(app, "SELECT COUNT(*) n FROM cd_sms_log WHERE status='missing'")[0]['n'] == 1
 
 
 def test_khong_sdt_va_so_zns_hong(so_zns, client, monkeypatch):
@@ -197,3 +198,41 @@ def test_khong_sdt_va_so_zns_hong(so_zns, client, monkeypatch):
     assert 'không có SĐT' in len_lich(client, lid).get_data(as_text=True)
     app.config['ZNS_DB'] = 'khj_khong_co_db_nay'
     r = client.get(BASE); assert r.status_code == 200 and 'Chưa đọc được sổ tin ZNS' in r.get_data(as_text=True)
+
+
+def test_ds_cho_gui_loc_rule_trang_thai_huy_nhom_va_xoa(so_zns, client):
+    app = so_zns; a, _ = create(client); lui_ngay(app, a, 20); b, _ = create(client); lui_ngay(app, b, 50)
+    client.post(BASE + '/len-lich', data=dict(csrf_token='token', loan=[str(a), str(b)], gio=gio()))
+    g = {r['level']: r['id'] for r in q(app, 'SELECT id,level FROM cd_sms_log')}; assert set(g) == {'nhac1', 'nhac3'}
+    html = client.get(BASE).get_data(as_text=True)
+    assert 'DS chờ gửi' in html and 'name="muc"' in html and 'name="tab"' in html and '🗑 XÓA' in html and html.count('data-pick-msg') == 2
+    assert client.get(BASE + '?muc=nhac3').get_data(as_text=True).count('data-pick-msg') == 1          # lọc theo Rule
+    assert client.get(BASE + '?tab=gui').get_data(as_text=True).count('data-pick-msg') == 0            # lọc theo trạng thái
+    assert client.post(BASE + '/huy-nhom', data=dict(csrf_token='token')).status_code == 400            # chưa tick
+    assert client.post(BASE + '/huy-nhom', data=dict(csrf_token='token', msg=[str(g['nhac1'])])).status_code == 302
+    assert q(app, 'SELECT status FROM cd_sms_log WHERE id=%s', (g['nhac1'],))[0]['status'] == 'cancelled'
+    assert client.get(BASE + '?tab=tat_ca').get_data(as_text=True).count('data-pick-msg') == 2
+    # Tin đã gửi KHÔNG xóa được; tin hủy / chờ thì xóa hẳn ở cả hai sổ và phiếu hiện lại bên trái
+    da_gui(app); client.get(BASE)
+    r = client.post(BASE + '/xoa', data=dict(csrf_token='token', msg=[str(g['nhac1']), str(g['nhac3'])], tab='tat_ca'), follow_redirects=True).get_data(as_text=True)
+    assert 'Đã XÓA 1 tin' in r and 'giữ lại' in r
+    assert [x['level'] for x in q(app, 'SELECT level FROM cd_sms_log')] == ['nhac3'] and len(q(app, "SELECT id FROM zalo_messages WHERE source_type='khcd_pawn'")) == 1
+    assert q(app, "SELECT status FROM zalo_messages WHERE source_type='auto_rule'")[0]['status'] == 'queued'
+    assert 'value="%d"' % a in client.get(BASE).get_data(as_text=True)                                   # phiếu a lại tick được
+
+
+def test_doi_rule_khi_luu_va_che_ma_phieu(so_zns, client):
+    app = so_zns; lid, _ = create(client); lui_ngay(app, lid, 50); len_lich(client, lid)
+    g = q(app, 'SELECT * FROM cd_sms_log')[0]; z = q(app, "SELECT * FROM zalo_messages WHERE source_type='khcd_pawn'")[0]
+    sku = q(app, 'SELECT sku FROM cd_loans WHERE id=%s', (lid,))[0]['sku']; bien = json.loads(z['template_data_json'])
+    assert g['level'] == 'nhac3' and bien['pawn_code'] == S.che_ma(sku) and '*' in bien['pawn_code'] and sku not in z['template_data_json']
+    assert z['trn_id'] == sku                                                   # cột nội bộ giữ trọn mã để tra cứu / đối soát
+    html = client.get(BASE).get_data(as_text=True)
+    assert 'name="level"' in html and ('data-ma="%s"' % S.che_ma(sku)) in html and ('data-ma="%s"' % sku) not in html
+    # Đổi rule sang lần 2 rồi LƯU → cả hai sổ đổi mức + khóa + câu nhắc theo rule mới
+    assert client.post(BASE + '/%d/sua' % g['id'], data=dict(csrf_token='token', gio=gio(10), level='nhac2')).status_code == 302
+    g2 = q(app, 'SELECT * FROM cd_sms_log')[0]; z2 = q(app, "SELECT * FROM zalo_messages WHERE source_type='khcd_pawn'")[0]
+    assert g2['level'] == 'nhac2' and g2['dedupe_key'] == S.dedupe(lid, g['cycle_log_id'], 'nhac2') == z2['dedupe_key'] and z2['source_status'] == 'nhac2'
+    assert json.loads(z2['template_data_json'])['notes'].startswith('Nhắc lần 2') and z2['scheduled_at'].hour == 10
+    assert client.post(BASE + '/%d/sua' % g['id'], data=dict(csrf_token='token', gio=gio(10), level='nhac9')).status_code == 302   # mức lạ → bỏ qua, giữ mức cũ
+    assert q(app, 'SELECT level FROM cd_sms_log')[0]['level'] == 'nhac2'

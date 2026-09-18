@@ -1,6 +1,6 @@
 {% extends 'base.html' %}{% from '_parts.html' import csrf with context %}
-{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='sms.css') }}?v=20260918c"><script defer src="{{ url_for('static',filename='sms.js') }}?v=20260918c"></script>{% endblock %}
-{% macro giu() %}<input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="loai" value="{{ filters.loai }}"><input type="hidden" name="tu" value="{{ filters.tu }}"><input type="hidden" name="tab" value="{{ tab }}">{% endmacro %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='sms.css') }}?v=20260918f"><script defer src="{{ url_for('static',filename='sms.js') }}?v=20260918e"></script>{% endblock %}
+{% macro giu() %}<input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="loai" value="{{ filters.loai }}"><input type="hidden" name="tu" value="{{ filters.tu }}"><input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="muc" value="{{ filters.muc }}">{% endmacro %}
 {% block content %}
 <div class="page-heading"><div><div class="eyebrow">KIỂM SOÁT PHIẾU · NHẮC KHÁCH</div><h1>Gửi SMS</h1><p>Zalo ZNS mẫu {{ mau.template_id if mau else '635511' }} · lên lịch vào sổ <b>khj_bl.zalo_messages</b>, KHBL gửi theo giờ hẹn. Số ngày quá hạn = hôm nay − ngày giao dịch gần nhất: {% for m in qt.muc if m.active %}{{ m.label|lower }} = {{ m.days }} ngày · {% endfor %}từ <b>{{ han_chot }}</b> ngày: chờ thanh lý. Đã nhắc mức nào thì ẩn tới mức kế; có giao dịch mới thì tin chờ tự hủy và nhắc lại từ lần 1. Xưng hô lấy theo giới tính khách trên KK.</p></div>
 <div class="sm-tools"><button type="button" class="btn btn-small" data-open-rules>⚙ Quy tắc nhắc</button><a class="btn btn-small" href="{{ url_for('sms.trang') }}">Làm mới</a></div></div>
@@ -8,7 +8,7 @@
 
 <div class="sm-cols">
 <section class="panel sm-panel">
- <form class="sm-filter" method="get" action="{{ url_for('sms.trang') }}"><input type="hidden" name="tab" value="{{ tab }}">
+ <form class="sm-filter" method="get" action="{{ url_for('sms.trang') }}"><input type="hidden" name="tab" value="{{ tab }}"><input type="hidden" name="muc" value="{{ filters.muc }}">
   <div class="sm-chips">{% set chip_muc = [] %}{% for m in qt.muc if m.active %}{% set _ = chip_muc.append((m.key, m.label ~ ' · ' ~ m.days ~ 'd', dem.get(m.key,0))) %}{% endfor %}{% for key,label,n in [('can_nhac','Cần nhắc',dem.can_nhac)] + chip_muc + [('da_lich','Đã có lịch',dem.da_lich),('cho_thanh_ly','Chờ thanh lý',dem.cho_thanh_ly),('loi','Gửi lỗi',dem.loi),('khong_nhac','Không nhắc',dem.khong_nhac),('tat_ca','Tất cả',dem.tat_ca)] %}<button type="submit" name="loai" value="{{ key }}" class="sm-chip {{ 'is-on' if filters.loai==key }}">{{ label }}<b>{{ n }}</b></button>{% endfor %}</div>
   <div class="sm-row"><label class="sm-search">{{ icon('search') }}<input name="q" value="{{ filters.q }}" placeholder="Mã biên nhận · SĐT · tên khách" autocomplete="off"></label>
   <select name="tu"><option value="">Mọi tủ</option>{% for v,l in [('1','Tủ 18k'),('2','Tủ 24k'),('3','Tủ đồ lớn')] %}<option value="{{ v }}" {{ 'selected' if filters.tu==v }}>{{ l }}</option>{% endfor %}</select><input type="hidden" name="loai" value="{{ filters.loai }}"><button class="btn btn-small">Lọc</button></div>
@@ -39,22 +39,40 @@
 </section>
 
 <section class="panel sm-panel">
- <div class="sm-head"><h2>Lịch gửi <small>cd_sms_log ⇄ khj_bl.zalo_messages (khcd_pawn)</small></h2>
-  <nav class="sm-tabs">{% for key,label in [('cho','Chờ gửi'),('gui','Đã gửi'),('loi','Lỗi'),('huy','Đã hủy')] %}<a class="{{ 'is-on' if tab==key }}" href="{{ url_for('sms.trang',tab=key,q=filters.q,loai=filters.loai,tu=filters.tu) }}">{{ label }}<b>{{ tong[key] }}</b></a>{% endfor %}</nav></div>
+ <div class="sm-head"><h2>{{ {'cho':'DS chờ gửi','gui':'DS đã gửi','loi':'DS lỗi','huy':'DS đã hủy','tat_ca':'Tất cả tin'}[tab] }} <small>{{ lich|length }} tin · cd_sms_log ⇄ khj_bl.zalo_messages</small></h2></div>
+ <form method="get" action="{{ url_for('sms.trang') }}" class="sm-bar" id="sm-loc-lich"><input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="loai" value="{{ filters.loai }}"><input type="hidden" name="tu" value="{{ filters.tu }}">
+  <label class="sm-all"><input type="checkbox" data-all-msg> Chọn tất cả</label>
+  <label>Rule<select name="muc" data-auto-submit><option value="">Mọi mức ({{ theo_muc.values()|sum }})</option>{% for m in qt.muc %}<option value="{{ m.key }}" {{ 'selected' if filters.muc==m.key }}>{{ m.label }} · {{ m.days }}d ({{ theo_muc.get(m.key,0) }})</option>{% endfor %}</select></label>
+  <label>Trạng thái<select name="tab" data-auto-submit>{% for key,label in [('cho','Chờ gửi'),('gui','Đã gửi'),('loi','Lỗi'),('huy','Đã hủy'),('tat_ca','Tất cả')] %}<option value="{{ key }}" {{ 'selected' if tab==key }}>{{ label }} ({{ tong[key] }})</option>{% endfor %}</select></label>
+ </form>
+ <form method="post" class="sm-bar sm-bar-act" id="sm-bulk" action="{{ url_for('sms.doi_gio_route') }}">{{ csrf() }}{{ giu() }}
+  <span class="sm-picked">Đã tick <b data-bulk-count>0</b></span>
+  <label>Dời sang<input type="datetime-local" name="gio" value="{{ gio_mac_dinh }}"></label>
+  <button class="btn btn-small" data-bulk disabled>⏱ Dời giờ</button>
+  <button class="btn btn-small" data-bulk disabled formaction="{{ url_for('sms.huy_nhom_route') }}" formnovalidate data-confirm-btn="Hủy các tin đang chờ đã tick?">⊘ Hủy</button>
+  <button class="btn btn-small sm-xoa" data-bulk disabled formaction="{{ url_for('sms.xoa_route') }}" formnovalidate data-confirm-btn="XÓA HẲN các tin đã tick khỏi sổ? Tin đã gửi sẽ được giữ lại.">🗑 XÓA</button>
+ </form>
  {% if lich %}
- {% if tab=='cho' %}<form method="post" action="{{ url_for('sms.doi_gio_route') }}" class="sm-bulk" id="sm-bulk">{{ csrf() }}{{ giu() }}<label><input type="checkbox" data-all-msg> Chọn tất cả</label><label>Dời sang<input type="datetime-local" name="gio" value="{{ gio_mac_dinh }}" required></label><button class="btn btn-small" data-bulk disabled>Dời <b data-bulk-count>0</b> tin</button></form>{% endif %}
- <div class="table-wrap sm-scroll"><table class="sm-table sm-lich"><thead><tr>{% if tab=='cho' %}<th></th>{% endif %}<th>Giờ gửi</th><th>Biên nhận · Mức</th><th>Nội dung</th><th>Trạng thái</th><th></th></tr></thead><tbody>
- {% for m in lich %}<tr>
-  {% if tab=='cho' %}<td><input type="checkbox" name="msg" value="{{ m.id }}" form="sm-bulk" data-pick-msg></td>{% endif %}
-  <td class="sm-when">{% if m.sua_duoc %}<input type="datetime-local" name="gio" value="{{ m.scheduled_local }}" form="sm-sua-{{ m.id }}" required>{% else %}{{ m.scheduled_at }}{% endif %}<small>#{{ m.id }} · {{ m.created_username or '—' }} · {{ m.created_at|datevn }}</small></td>
-  <td><a class="code" href="{{ url_for('loans.listing',q=m.sku) }}#xem={{ m.loan_id }}">{{ m.sku }}</a><small><b>{{ m.muc_nhan }}</b> · d={{ m.d_days }} · {{ m.bien.get('anh_chi','') }} {{ m.bien.get('customer_name','') }}</small></td>
-  <td class="sm-noi-dung">{% if m.sua_duoc %}<div class="sm-inline"><select name="anh_chi" form="sm-sua-{{ m.id }}">{% for v in ['Anh','Chị','Anh/Chị'] %}<option {{ 'selected' if m.bien.get('anh_chi')==v }}>{{ v }}</option>{% endfor %}</select><input name="notes" form="sm-sua-{{ m.id }}" value="{{ m.bien.get('notes','') }}" maxlength="200" placeholder="Nhắc hẹn"></div>{% else %}<b>{{ m.bien.get('notes','') }}</b>{% endif %}<details class="sm-preview"><summary>Xem tin</summary><pre>{{ xem_truoc(m.bien) }}</pre></details></td>
-  <td><span class="sm-tag is-{{ 'cho' if m.status in ('queued','retry','sending') else 'ok' if m.status in ('sent','delivered','seen') else 'bad' if m.status.startswith('failed') or m.status=='missing' else '' }}">{{ 'mất bên sổ KHBL' if m.status=='missing' else m.status }}</span>{% if m.sent_at %}<small>gửi {{ m.sent_at }}</small>{% endif %}{% if m.cancel_reason %}<small>{{ m.cancel_reason }}</small>{% endif %}</td>
-  <td class="right sm-btns">{% if m.sua_duoc %}<form method="post" action="{{ url_for('sms.sua_route',mid=m.id) }}" id="sm-sua-{{ m.id }}">{{ csrf() }}{{ giu() }}<button class="btn btn-small">Lưu</button></form><form method="post" action="{{ url_for('sms.huy_route',mid=m.id) }}" data-confirm="Hủy tin #{{ m.id }} cho {{ m.sku }}?">{{ csrf() }}{{ giu() }}<input type="hidden" name="ly_do" value="Cầm đồ hủy tại trang Gửi SMS"><button class="btn btn-small sm-huy">Hủy</button></form>{% endif %}</td>
+ <div class="table-wrap sm-scroll"><table class="sm-table sm-lich"><thead><tr><th></th><th>Giờ gửi</th><th>Biên nhận · Khách</th><th>Rule</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+ {% for m in lich %}<tr class="is-{{ m.nhom }}">
+  <td><input type="checkbox" name="msg" value="{{ m.id }}" form="sm-bulk" data-pick-msg></td>
+  <td class="sm-when">{% if m.sua_duoc %}<input type="datetime-local" name="gio" value="{{ m.scheduled_local }}" form="sm-sua-{{ m.id }}" required>{% else %}{{ m.scheduled_at.strftime('%d/%m/%Y %H:%M') if m.scheduled_at else '—' }}{% endif %}<small>#{{ m.id }} · {{ m.created_username or '—' }} · tạo {{ m.created_at|datevn }}</small></td>
+  <td><a class="code" href="{{ url_for('loans.listing',q=m.sku) }}#xem={{ m.loan_id }}">{{ m.sku }}</a><small>{{ m.bien.get('anh_chi','') }} {{ m.bien.get('customer_name','') }}</small></td>
+  <td>{% if m.sua_duoc %}<select name="level" form="sm-sua-{{ m.id }}" class="sm-rule-sel is-{{ m.mau }}" title="Đổi rule rồi bấm LƯU — câu nhắc lấy theo rule mới">{% for x in qt.muc if x.active or x.key==m.level %}<option value="{{ x.key }}" {{ 'selected' if x.key==m.level }}>{{ x.label }}</option>{% endfor %}</select>{% else %}<span class="sm-tag is-{{ m.mau }}">{{ m.muc_nhan }}</span>{% endif %}<small>{{ m.bien.get('days', m.d_days) }} ngày</small></td>
+  <td><span class="sm-tag is-{{ 'cho' if m.nhom=='cho' else 'ok' if m.nhom=='gui' else 'bad' if m.nhom=='loi' else '' }}">{{ {'queued':'Chờ gửi','retry':'Chờ gửi lại','sending':'Đang gửi','sent':'Đã gửi','delivered':'Đã nhận','seen':'Đã xem','failed':'Lỗi','failed_permanent':'Lỗi hẳn','cancelled':'Đã hủy','missing':'Mất bên sổ KHBL'}.get(m.status,m.status) }}</span>{% if m.sent_at %}<small>gửi {{ m.sent_at.strftime('%d/%m %H:%M') }}</small>{% endif %}{% if m.cancel_reason %}<small>{{ m.cancel_reason }}</small>{% endif %}</td>
+  <td class="right sm-btns"><button type="button" class="btn btn-small" data-xem-tin data-anh-chi="{{ m.bien.get('anh_chi','') }}" data-ten="{{ m.bien.get('customer_name','') }}" data-ma="{{ m.bien.get('pawn_code','') }}" data-ngay="{{ m.bien.get('promise_date','') }}" data-days="{{ m.bien.get('days','') }}" data-notes="{{ m.bien.get('notes','') }}" data-gio="{{ m.scheduled_at.strftime('%d/%m/%Y %H:%M') if m.scheduled_at else '' }}" data-rule="{{ m.muc_nhan }}">XEM</button>{% if m.sua_duoc %}<form method="post" action="{{ url_for('sms.sua_route',mid=m.id) }}" id="sm-sua-{{ m.id }}">{{ csrf() }}{{ giu() }}<button class="btn btn-small">Lưu</button></form>{% endif %}</td>
  </tr>{% endfor %}</tbody></table></div>
- {% else %}<div class="empty-state"><strong>{{ {'cho':'Chưa có tin nào chờ gửi.','gui':'Chưa có tin nào đã gửi.','loi':'Không có tin lỗi.','huy':'Không có tin đã hủy.'}[tab] }}</strong><p>Chọn phiếu ở cột trái rồi bấm Lên lịch.</p></div>{% endif %}
+ {% else %}<div class="empty-state"><strong>Không có tin nào khớp Rule / Trạng thái đang chọn.</strong><p>Chọn phiếu ở cột trái rồi bấm Lên lịch, hoặc đổi bộ lọc phía trên.</p></div>{% endif %}
 </section>
 </div>
+<dialog id="sm-xem" class="sm-xem" aria-label="Nội dung tin ZNS"><div class="sm-xem-meta"><span data-x="rule"></span><span data-x="gio"></span><button type="button" class="lm-close" data-close-xem aria-label="Đóng">×</button></div>
+ <article class="zns-card"><img src="{{ url_for('static',filename='img/logo_full.png') }}" alt="Tiệm vàng Kim Hạnh 2" class="zns-logo">
+  <h3>CẦM ĐỒ KIM HẠNH 2</h3>
+  <p>Kính gửi <b data-x="anh_chi"></b> <b data-x="ten"></b>,</p>
+  <p>Bộ phận Cầm đồ – Tiệm Vàng Kim Hạnh 2 xin thông báo: Mã phiếu cầm <b data-x="ma"></b> đã quá hạn gia hạn kể từ ngày <b data-x="ngay"></b>.</p>
+  <p>– Số ngày quá hạn: <b data-x="days"></b>; Nhắc hẹn: <b data-x="notes"></b></p>
+  <p>Kính đề nghị <b data-x="anh_chi"></b> thu xếp đến Tiệm Vàng Kim Hạnh 2 trong thời gian sớm nhất để thực hiện gia hạn hoặc hoàn tất giao dịch liên quan. Trân trọng!</p>
+  <span class="zns-btn">Đến trang OA</span></article></dialog>
 <dialog id="sm-rules" class="sm-rules" aria-label="Quy tắc nhắc"><form method="post" action="{{ url_for('sms.quy_tac_route') }}">{{ csrf() }}{{ giu() }}
  <div class="sm-head"><h2>Quy tắc nhắc <small>bảng cd_sms_rules · số ngày quá hạn tính từ giao dịch gần nhất</small></h2><button type="button" class="lm-close" data-close-rules aria-label="Đóng">×</button></div>
  <table class="sm-table sm-rules-table"><thead><tr><th>Lần</th><th>Dùng</th><th>Tên mức</th><th>Từ ngày</th><th>Câu nhắc (biến notes, ≤ 200 ký tự)</th></tr></thead><tbody>

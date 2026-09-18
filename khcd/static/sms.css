@@ -75,3 +75,26 @@ form.sm-act{margin:0}
 .sm-rules-foot{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}.sm-rules-foot .btn{margin:0;height:32px}
 .sm-rules code{background:#f3e3e4;border-radius:4px;padding:0 4px;font-size:10px}
 .sm-gt{color:#9a6d13;font-size:10px;cursor:help}
+/* Cột phải: thanh lọc (Rule · Trạng thái) + thanh thao tác nhóm (Dời giờ · Hủy · XÓA) */
+.sm-bar{display:flex;flex-wrap:wrap;align-items:flex-end;gap:6px;padding:4px 0;margin:0;font-size:10px;color:var(--muted)}
+.sm-bar label{display:flex;flex-direction:column;gap:2px;margin:0;text-transform:uppercase;letter-spacing:.5px;font-size:9px}
+.sm-bar label.sm-all{flex-direction:row;align-items:center;gap:4px;text-transform:none;font-size:10px;padding-bottom:6px}
+.sm-bar select,.sm-bar input[type=datetime-local]{height:28px;font-size:11px;width:auto}
+.sm-bar .btn{height:28px;margin:0}
+.sm-bar-act{border-top:1px dashed var(--line);border-bottom:1px solid var(--line);padding:4px 0 6px;margin-bottom:4px}
+.sm-picked{padding-bottom:7px}.sm-picked b{color:var(--ruby);font-size:12px}
+.sm-xoa{color:#fff;background:#a52d43;border-color:#a52d43}.sm-xoa:disabled{background:#f3e3e4;color:#b9a1a5;border-color:#ead6d8}
+.sm-lich tr.is-huy td{opacity:.6}.sm-lich tr.is-loi td:nth-child(2){box-shadow:inset 3px 0 0 var(--red)}
+/* Popup XEM — thẻ tin ZNS giống bản xem trước của Zalo */
+.sm-xem{width:min(430px,calc(100vw - 24px));padding:10px;border:0;border-radius:14px;background:#eef1f5;box-shadow:0 24px 80px #35101e55}
+.sm-xem::backdrop{background:#23111b80;backdrop-filter:blur(3px)}
+.sm-xem-meta{display:flex;align-items:center;gap:8px;margin:0 2px 8px;font-size:11px;color:#5d6673}
+.sm-xem-meta span:first-child{font-weight:700;color:var(--ruby)}.sm-xem-meta .lm-close{margin-left:auto;width:28px;height:28px;font-size:18px}
+.zns-card{background:#fff;border-radius:12px;padding:18px 18px 16px;font:15px/1.55 "Segoe UI",Roboto,Arial,sans-serif;color:#4a5361}
+.zns-logo{display:block;height:54px;width:auto;max-width:70%;object-fit:contain;margin:0 0 14px}
+.zns-card h3{margin:0 0 10px;font:600 18px/1.3 "Segoe UI",Roboto,Arial,sans-serif;color:#1d232b;letter-spacing:.2px}
+.zns-card p{margin:0 0 12px}
+.zns-card b{color:#1d232b;font-weight:700;overflow-wrap:anywhere}
+.zns-btn{display:block;margin-top:4px;padding:11px;border-radius:9px;background:#0068ff;color:#fff;text-align:center;font-weight:700;font-size:16px}
+.sm-rule-sel{height:26px;font-size:11px;font-weight:700;padding:0 4px;border-radius:5px;max-width:170px}
+.sm-rule-sel.is-ok{background:#e8f4ec;color:#237447}.sm-rule-sel.is-warn{background:#fbf1dc;color:#9a6d13}.sm-rule-sel.is-bad{background:#fcdfe2;color:#b52d42}

@@ -179,6 +179,14 @@ def anh_chi_cua(gioi_tinh, ten=None):
     if gioi_tinh is False: return 'Chị'
     return quy_tac()['xung_ho_mac_dinh']
 
+def che_ma(ma):
+    """'KH22604018242' → 'KH******18242': giữ 2 ký tự đầu + 5 ký tự cuối, che phần giữa (GĐ chốt 18/09/2026).
+    Tin có thể tới nhầm SĐT (khách khai sai số) ⇒ không lộ trọn mã phiếu; khách thật vẫn nhận ra phiếu của mình.
+    Chạy lại trên chuỗi đã che vẫn ra y nguyên. Mã quá ngắn (≤ 7 ký tự) thì chỉ giữ 3 ký tự cuối."""
+    ma = str(ma or '').strip()
+    if len(ma) <= 7: return '*' * max(0, len(ma) - 3) + ma[-3:]
+    return ma[:2] + '*' * (len(ma) - 7) + ma[-5:]
+
 def ten_khong_tien_to(ten):
     """'Chị Quỳnh' → 'Quỳnh' · 'Anh Tuấn' → 'Tuấn'. Chỉ bóc tiền tố Anh/Chị ở ĐẦU tên; bóc xong rỗng thì giữ nguyên."""
     goc = ' '.join(str(ten or '').split())
@@ -226,6 +234,15 @@ def dong_bo():
             elif z['status'] != r['status']:
                 db.execute('UPDATE cd_sms_log SET status=%s,sent_at=%s,scheduled_at=COALESCE(%s,scheduled_at),cancel_reason=%s,synced_at=%s WHERE id=%s',
                            (z['status'], z['sent_at'], z['scheduled_at'], z['cancel_reason'], bay_gio, r['id']))
+    # Tin ĐANG CHỜ lên lịch trước khi có quy tắc che mã phiếu → che lại ở cả hai sổ (tin đã gửi thì để nguyên làm dấu vết).
+    for r in db.all("SELECT id,zalo_message_id,vars_json FROM cd_sms_log WHERE status IN ('queued','retry')"):
+        try: bien = json.loads(r['vars_json']) or {}
+        except Exception: continue
+        ma = bien.get('pawn_code')
+        if ma and che_ma(ma) != ma:
+            bien['pawn_code'] = che_ma(ma); bj = json.dumps(bien, ensure_ascii=False)
+            db.execute('UPDATE ' + so_bang() + " SET template_data_json=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (bj, bay_gio, r['zalo_message_id'], NGUON))
+            db.execute('UPDATE cd_sms_log SET vars_json=%s WHERE id=%s', (bj, r['id']))
     mo_coi = db.one('SELECT COUNT(*) n FROM ' + so_bang() + ' z WHERE z.source_type=%s AND NOT EXISTS (SELECT 1 FROM cd_sms_log g WHERE g.zalo_message_id=z.id)', (NGUON,))['n']
     thieu = db.one("SELECT COUNT(*) n FROM cd_sms_log WHERE status='missing'")['n']
     return dict(thieu_ben_so=int(thieu), khong_co_log=int(mo_coi), vua_mat=mat)
@@ -315,17 +332,28 @@ def ung_vien(args):
     return out, dem
 
 # ── SỔ LỊCH (bên phải) — đọc từ cd_sms_log đã đồng bộ ───────────────────────────────────────────
-def lich_gui(tab):
-    st = TRANG_THAI.get(tab, TRANG_THAI['cho']) + (('missing',) if tab == 'loi' else ())
-    rows = db.all('SELECT * FROM cd_sms_log WHERE status IN (' + ','.join(['%s'] * len(st)) + ') ORDER BY ' + ('scheduled_at,id' if tab == 'cho' else 'updated_at DESC,id DESC') + ' LIMIT 300', list(st))
+def lich_gui(tab, muc=''):
+    """DS tin của Cầm đồ (cd_sms_log đã đồng bộ). tab: cho · gui · loi · huy · tat_ca — muc: '' | nhac1..nhac4."""
+    if tab == 'tat_ca': st = sum(TRANG_THAI.values(), ()) + ('missing',)
+    else: st = TRANG_THAI.get(tab, TRANG_THAI['cho']) + (('missing',) if tab == 'loi' else ())
+    where = ' WHERE status IN (' + ','.join(['%s'] * len(st)) + ')'; params = list(st)
+    if muc in THU_TU and muc: where += ' AND level=%s'; params.append(muc)
+    rows = db.all('SELECT * FROM cd_sms_log' + where + ' ORDER BY ' + ('scheduled_at,id' if tab == 'cho' else 'updated_at DESC,id DESC') + ' LIMIT 500', params)
+    nhan = quy_tac()['nhan']
     for m in rows:
         try: m['bien'] = json.loads(m['vars_json']) or {}
         except Exception: m['bien'] = {}
+        if m['bien'].get('pawn_code'): m['bien']['pawn_code'] = che_ma(m['bien']['pawn_code'])   # tin cũ chưa che vẫn hiện dạng che
         m['scheduled_local'] = m['scheduled_at'].strftime('%Y-%m-%dT%H:%M') if m['scheduled_at'] else ''
-        m['sua_duoc'] = m['status'] in ('queued', 'retry'); m['muc_nhan'] = quy_tac()['nhan'].get(m['level'], m['level'])
-    tong = {k: db.one('SELECT COUNT(*) n FROM cd_sms_log WHERE status IN (' + ','.join(['%s'] * len(v)) + ')', list(v))['n'] for k, v in TRANG_THAI.items()}
-    tong['loi'] += db.one("SELECT COUNT(*) n FROM cd_sms_log WHERE status='missing'")['n']
-    return rows, tong
+        m['sua_duoc'] = m['status'] in ('queued', 'retry'); m['xoa_duoc'] = m['status'] not in TRANG_THAI['gui'] + ('sending',)
+        m['muc_nhan'] = nhan.get(m['level'], m['level']); m['mau'] = MUC_MAU.get(m['level'], '')
+        m['nhom'] = next((k for k, v in TRANG_THAI.items() if m['status'] in v), 'loi')
+    tong = {k: 0 for k in TRANG_THAI}; theo_muc = {}
+    for r in db.all('SELECT status,level,COUNT(*) n FROM cd_sms_log GROUP BY status,level'):
+        nhom = next((k for k, v in TRANG_THAI.items() if r['status'] in v), 'loi'); tong[nhom] += int(r['n'])
+        if tab == 'tat_ca' or nhom == tab: theo_muc[r['level']] = theo_muc.get(r['level'], 0) + int(r['n'])
+    tong['tat_ca'] = sum(tong.values())
+    return rows, tong, theo_muc
 
 def xem_truoc(bien):
     return ('CẦM ĐỒ KIM HẠNH 2\n\nKính gửi {anh_chi} {customer_name},\n\nBộ phận Cầm đồ – Tiệm Vàng Kim Hạnh 2 xin thông báo: Mã phiếu cầm {pawn_code} '
@@ -351,7 +379,7 @@ def dung_bien(r, level, ghi_chu=None, anh_chi=None):
     cau = ghi_chu or next((m['notes'] for m in quy_tac()['muc'] if m['key'] == level), 'Nhắc hẹn')
     # GĐ chốt: d = số ngày quá hạn = hôm nay − ngày giao dịch gần nhất ⇒ promise_date là CHÍNH ngày giao dịch đó,
     # để câu "quá hạn kể từ ngày X – số ngày quá hạn: d" tự khớp nhau.
-    return {'pawn_code': str(r['sku'])[:30], 'customer_name': str(r.get('ten_goi') or ten_khong_tien_to(r['customer_name']) or 'Khách hàng')[:30],
+    return {'pawn_code': che_ma(r['sku'])[:30], 'customer_name': str(r.get('ten_goi') or ten_khong_tien_to(r['customer_name']) or 'Khách hàng')[:30],
             'anh_chi': str(anh_chi or r.get('anh_chi') or quy_tac()['xung_ho_mac_dinh'])[:30], 'promise_date': parse_date(r['last_at']).strftime('%d/%m/%Y'),
             'days': str(int(r['d'])), 'notes': dung_notes(cau, r, level)}
 
@@ -397,19 +425,46 @@ def _dong(mid):
     if m['status'] not in ('queued', 'retry'): raise BusinessError('Chỉ sửa / hủy được tin đang chờ gửi.')
     return m
 
-def sua_dong(mid, gio, notes, anh_chi):
-    m = _dong(mid); kiem_gio(gio); bien = json.loads(m['vars_json'] or '{}'); _, uname = nguoi()
+def sua_dong(mid, gio, notes, anh_chi, level=None):
+    """Sửa tin đang chờ: giờ gửi, (tuỳ chọn) xưng hô / câu nhắc, và RULE. Đổi rule ⇒ câu nhắc lấy lại theo rule mới,
+    khóa chống trùng tính lại (phiếu + mốc + mức) ở CẢ HAI sổ; mức đó đã có tin khác trong chu kỳ thì từ chối."""
+    m = _dong(mid); kiem_gio(gio); bien = json.loads(m['vars_json'] or '{}'); _, uname = nguoi(); bay_gio = now()
     if notes is not None and str(notes).strip(): bien['notes'] = str(notes)[:200]
     if anh_chi: bien['anh_chi'] = str(anh_chi)[:30]
+    if bien.get('pawn_code'): bien['pawn_code'] = che_ma(bien['pawn_code'])
+    level = level if level in THU_TU and level else m['level']; khoa = m['dedupe_key']
+    if level != m['level']:
+        if not any(x['key'] == level and x['active'] for x in quy_tac()['muc']): raise BusinessError('Rule này đang tắt trong ⚙ Quy tắc nhắc.')
+        khoa = dedupe(m['loan_id'], m['cycle_log_id'], level)
+        trung = db.one('SELECT id,status FROM cd_sms_log WHERE dedupe_key=%s AND id<>%s', (khoa, mid))
+        if trung:
+            if not xoa_dong(trung['id']): raise BusinessError('%s đã có tin ĐÃ GỬI trong chu kỳ này — không đổi sang rule đó được.' % quy_tac()['nhan'].get(level, level))
+        try: moc = datetime.strptime(bien.get('promise_date', ''), '%d/%m/%Y')
+        except ValueError: moc = bay_gio - timedelta(days=int(m['d_days']))
+        cau = next(x['notes'] for x in quy_tac()['muc'] if x['key'] == level)
+        bien['notes'] = dung_notes(cau, dict(last_at=moc, d=int(bien.get('days') or m['d_days'])), level)
     bj = json.dumps(bien, ensure_ascii=False)
-    n = db_rowcount('UPDATE ' + so_bang() + " SET scheduled_at=%s,template_data_json=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (gio, bj, now(), m['zalo_message_id'], NGUON))
-    if not n: raise BusinessError('Tin không còn ở trạng thái chờ bên sổ KHBL — tải lại trang để đồng bộ.')
-    db.execute('UPDATE cd_sms_log SET scheduled_at=%s,vars_json=%s,updated_username=%s,updated_at=%s WHERE id=%s', (gio, bj, uname, now(), mid))
+    # KHÔNG dựa vào rowcount: MySQL chỉ đếm dòng THAY ĐỔI — lưu lại y nguyên trong cùng một giây sẽ ra 0 và báo lỗi oan.
+    if not db.one('SELECT id FROM ' + so_bang() + " WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (m['zalo_message_id'], NGUON)):
+        raise BusinessError('Tin không còn ở trạng thái chờ bên sổ KHBL — tải lại trang để đồng bộ.')
+    db.execute('UPDATE ' + so_bang() + " SET scheduled_at=%s,template_data_json=%s,dedupe_key=%s,source_status=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')",
+               (gio, bj, khoa, level, bay_gio, m['zalo_message_id'], NGUON))
+    db.execute('UPDATE cd_sms_log SET scheduled_at=%s,vars_json=%s,level=%s,dedupe_key=%s,updated_username=%s,updated_at=%s WHERE id=%s', (gio, bj, level, khoa, uname, bay_gio, mid))
 
 def huy_dong(mid, ly_do):
     m = _dong(mid); _, uname = nguoi(); ly = str(ly_do or 'Cầm đồ hủy')[:100]
     db.execute('UPDATE ' + so_bang() + " SET status='cancelled',cancelled_at=%s,cancel_reason=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (now(), ly, now(), m['zalo_message_id'], NGUON))
     db.execute("UPDATE cd_sms_log SET status='cancelled',cancel_reason=%s,updated_username=%s,updated_at=%s WHERE id=%s", (ly, uname, now(), mid))
+
+def xoa_dong(mid):
+    """XÓA HẲN một tin khỏi cả sổ KHBL lẫn cd_sms_log. Tin ĐÃ GỬI / đang gửi thì KHÔNG xóa (giữ dấu vết đối soát).
+    Xóa xong, mức đó coi như chưa xử lý ⇒ phiếu hiện lại ở cột trái."""
+    m = db.one('SELECT id,zalo_message_id,status FROM cd_sms_log WHERE id=%s', (mid,))
+    if not m or m['status'] in TRANG_THAI['gui'] + ('sending',): return False
+    if m['zalo_message_id']:
+        db.execute('DELETE FROM ' + so_bang() + " WHERE id=%s AND source_type=%s AND status NOT IN ('sent','delivered','seen','sending')", (m['zalo_message_id'], NGUON))
+        if db.one('SELECT id FROM ' + so_bang() + ' WHERE id=%s AND source_type=%s', (m['zalo_message_id'], NGUON)): return False   # bên sổ đã gửi mất rồi → giữ log
+    db.execute('DELETE FROM cd_sms_log WHERE id=%s', (mid,)); return True
 
 def db_rowcount(sql, params):
     with db.db().cursor() as cur:
@@ -442,21 +497,22 @@ def _an_toan(fn, mac_dinh):
 
 @bp.get('')
 def trang():
-    tab = request.args.get('tab', 'cho'); tab = tab if tab in TRANG_THAI else 'cho'
+    tab = request.args.get('tab', 'cho'); tab = tab if tab in TRANG_THAI or tab == 'tat_ca' else 'cho'
+    muc_loc = request.args.get('muc', ''); muc_loc = muc_loc if muc_loc in THU_TU else ''
     doi_soat, loi0 = _an_toan(lambda: (ra_tin_cho(), dong_bo())[1] if not current_app.config['DB_READ_ONLY'] else dict(thieu_ben_so=0, khong_co_log=0, vua_mat=0), dict(thieu_ben_so=0, khong_co_log=0, vua_mat=0))
     (ung, dem), loi1 = _an_toan(lambda: ung_vien(request.args), ([], {}))
-    (lich, tong), loi2 = _an_toan(lambda: lich_gui(tab), ([], {k: 0 for k in TRANG_THAI}))
+    (lich, tong, theo_muc), loi2 = _an_toan(lambda: lich_gui(tab, muc_loc), ([], dict({k: 0 for k in TRANG_THAI}, tat_ca=0), {}))
     mau, loi3 = _an_toan(mau_zns, None)
-    filters = dict(q=request.args.get('q', ''), loai=request.args.get('loai', 'can_nhac'), tu=request.args.get('tu', ''))
+    filters = dict(q=request.args.get('q', ''), loai=request.args.get('loai', 'can_nhac'), tu=request.args.get('tu', ''), muc=muc_loc)
     canh_bao = list(dict.fromkeys(x for x in (loi0, loi1, loi2, loi3) if x))
     if mau and (mau['status'] != 'ENABLE' or not mau['active']): canh_bao.append('Mẫu ZNS %s "%s" đang %s trên Zalo OA — tin sẽ nằm chờ tới khi KHBL/CARE360 bật mẫu và bộ gửi.' % (mau['template_id'], mau['template_name'], mau['status']))
     if doi_soat['thieu_ben_so'] or doi_soat['khong_co_log']: canh_bao.append('ĐỐI SOÁT: %d tin có trong sổ Cầm đồ nhưng KHÔNG còn bên khj_bl.zalo_messages (xem tab Lỗi) · %d dòng khcd_pawn bên sổ KHBL không có log Cầm đồ.' % (doi_soat['thieu_ben_so'], doi_soat['khong_co_log']))
-    return render_template('sms.html', title='Gửi SMS', ung=ung, dem=dem, lich=lich, tong=tong, tab=tab, filters=filters, mau=mau, canh_bao=canh_bao,
+    return render_template('sms.html', title='Gửi SMS', ung=ung, dem=dem, lich=lich, tong=tong, theo_muc=theo_muc, tab=tab, filters=filters, mau=mau, canh_bao=canh_bao,
                            qt=quy_tac(), muc_nhan=quy_tac()['nhan'], han_chot=quy_tac()['han_chot'], bien_notes=BIEN_NOTES, duoc_sua_quy_tac=bool(getattr(g, 'auth_user', None) and g.auth_user.get('is_superuser')),
                            lich_su_qt=db.all('SELECT changed_at,username,target,old_json,new_json FROM cd_sms_rules_history ORDER BY id DESC LIMIT 12'), gio_mac_dinh=gio_gui_mac_dinh().strftime('%Y-%m-%dT%H:%M'), xem_truoc=xem_truoc, today_iso=str(today()))
 
 def _ve():
-    return redirect(url_for('sms.trang', **{k: v for k, v in request.form.items() if k in ('q', 'loai', 'tu', 'tab') and v}))
+    return redirect(url_for('sms.trang', **{k: v for k, v in request.form.items() if k in ('q', 'loai', 'tu', 'tab', 'muc') and v}))
 
 def _gio():
     try: return datetime.strptime(request.form.get('gio', ''), '%Y-%m-%dT%H:%M')
@@ -471,7 +527,7 @@ def len_lich_route():
 
 @bp.post('/<int:mid>/sua')
 def sua_route(mid):
-    db.require_write(); sua_dong(mid, _gio(), request.form.get('notes'), request.form.get('anh_chi')); flash('Đã cập nhật tin #%d.' % mid, 'success'); return _ve()
+    db.require_write(); sua_dong(mid, _gio(), request.form.get('notes'), request.form.get('anh_chi'), request.form.get('level')); flash('Đã cập nhật tin #%d.' % mid, 'success'); return _ve()
 
 @bp.post('/<int:mid>/huy')
 def huy_route(mid):
@@ -483,7 +539,8 @@ def doi_gio_route():
     for mid in [int(x) for x in request.form.getlist('msg') if str(x).isdigit()]:
         try: m = _dong(mid)
         except BusinessError: continue
-        if db_rowcount('UPDATE ' + so_bang() + " SET scheduled_at=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (gio, now(), m['zalo_message_id'], NGUON)):
+        if db.one('SELECT id FROM ' + so_bang() + " WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (m['zalo_message_id'], NGUON)):
+            db.execute('UPDATE ' + so_bang() + " SET scheduled_at=%s,updated_at=%s WHERE id=%s AND source_type=%s AND status IN ('queued','retry')", (gio, now(), m['zalo_message_id'], NGUON))
             db.execute('UPDATE cd_sms_log SET scheduled_at=%s,updated_username=%s,updated_at=%s WHERE id=%s', (gio, nguoi()[1], now(), mid)); n += 1
     if not n: raise BusinessError('Chưa chọn tin nào đang chờ.')
     flash('Đã dời %d tin sang %s.' % (n, gio.strftime('%d/%m/%Y %H:%M')), 'success'); return _ve()
@@ -501,3 +558,21 @@ def quy_tac_route():
     db.require_write()
     if not (getattr(g, 'auth_user', None) and g.auth_user.get('is_superuser')): raise BusinessError('Chỉ tài khoản quản trị được sửa quy tắc nhắc.')
     luu_quy_tac(request.form); flash('Đã lưu quy tắc nhắc. Tin đã lên lịch giữ nguyên nội dung cũ; quy tắc mới áp dụng từ lượt lên lịch kế tiếp.', 'success'); return _ve()
+
+def _ids():
+    ids = [int(x) for x in request.form.getlist('msg') if str(x).isdigit()]
+    if not ids: raise BusinessError('Chưa tick tin nào.')
+    return ids
+
+@bp.post('/huy-nhom')
+def huy_nhom_route():
+    db.require_write(); n = 0
+    for mid in _ids():
+        try: huy_dong(mid, 'Cầm đồ hủy (nhóm) tại trang Gửi SMS'); n += 1
+        except BusinessError: continue
+    flash('Đã hủy %d tin đang chờ.' % n, 'success' if n else 'warning'); return _ve()
+
+@bp.post('/xoa')
+def xoa_route():
+    db.require_write(); ids = _ids(); n = sum(1 for mid in ids if xoa_dong(mid))
+    flash('Đã XÓA %d tin khỏi sổ.' % n + (' %d tin đã gửi / đang gửi được giữ lại làm dấu vết.' % (len(ids) - n) if len(ids) - n else ''), 'success' if n else 'warning'); return _ve()
