@@ -54,6 +54,8 @@
  <p class="muted lm-legend">Tiền mặt / chuyển khoản: dương = tiệm THU, âm = tiệm CHI. Số liệu giữ nguyên như đã ghi nhận, không tính lại lãi lịch sử.</p>
  {% else %}<p class="muted">Chưa có phiên giao dịch.</p>{% endif %}
 </section>
+{% if sms and (sms.rows or sms.control) %}<section class="lm-card"><h3>Nhắc khách (ZNS) <small>{{ sms.rows|length }} tin{% if sms.control %} · {{ '🔕 đang tắt nhắc' if sms.control.muted else ('⏸ hoãn đến ' ~ (sms.control.snooze_until|datevn) if sms.control.snooze_until else '') }}{% if sms.control.reason %} — {{ sms.control.reason }}{% endif %}{% endif %}</small></h3>
+{% if sms.rows %}<table class="lm-table"><thead><tr><th>Giờ hẹn</th><th>Mức</th><th>Nội dung nhắc</th><th>Trạng thái</th><th>Người lên lịch</th></tr></thead><tbody>{% for m in sms.rows %}<tr><td>{{ m.scheduled_at }}</td><td><b>{{ m.muc_nhan }}</b><small>d={{ m.d_days }}</small></td><td>{{ m.notes }}</td><td>{{ m.status }}{% if m.sent_at %}<small>gửi {{ m.sent_at }}</small>{% endif %}{% if m.cancel_reason %}<small>{{ m.cancel_reason }}</small>{% endif %}</td><td>{{ m.created_username }}</td></tr>{% endfor %}</tbody></table>{% endif %}</section>{% endif %}
 {% set available_photos = photos|selectattr('available')|list %}
 {% if available_photos %}<section class="lm-card"><h3>Hình ảnh <small>{{ available_photos|length }}</small></h3><div class="lm-photos">{% for p in available_photos %}<a href="{{ url_for('loans.photo',loan_id=loan.id,slot=p.slot) }}" target="_blank" rel="noopener" title="{{ p.label }}"><img loading="lazy" src="{{ url_for('loans.photo',loan_id=loan.id,slot=p.slot) }}" alt="{{ p.label }}"><span>{{ p.label }}</span></a>{% endfor %}</div></section>{% endif %}
 {% if loan.note %}<p class="lm-note">Ghi chú: {{ loan.note }}</p>{% endif %}

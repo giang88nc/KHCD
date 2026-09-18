@@ -22,7 +22,7 @@ def install_legacy_urls(app):
     def canonical_url():
         if request.method not in ('GET', 'HEAD') or not request.url_rule or request.path == '/':
             return
-        if request.endpoint.startswith(('web.', 'customer_popup.', 'loans.', 'giaodich.')):
+        if request.endpoint.startswith(('web.', 'customer_popup.', 'loans.', 'giaodich.', 'sms.')):
             destination = url_for(request.endpoint, **(request.view_args or {}))
             if destination != request.path and destination.startswith('/camdo'):
                 # Preserve the original encoded query, including repeated filters.

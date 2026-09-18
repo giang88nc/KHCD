@@ -64,7 +64,8 @@ def employees(refresh=False):
 def adapt(row):
     if not row:return None
     return dict(row,id=str(row['CustID']),name=row.get('CustName') or '',phone=row.get('Phone') or '',
-                phone2=row.get('GhiChu2') or '',phone3=row.get('GhiChu3') or '',cccd=row.get('CMND') or '',addr=row.get('Address') or '')
+                phone2=row.get('GhiChu2') or '',phone3=row.get('GhiChu3') or '',cccd=row.get('CMND') or '',addr=row.get('Address') or '',
+                gender=(None if row.get('Gender') is None else row.get('Gender') in (True,1,'1','True','true')))   # I_CUSTOMER.Gender: True=Nam, False=Nữ, None=chưa rõ
 
 
 # CACHE HỒ SƠ KHÁCH KK theo CustID (18/09/2026): mỗi lượt get/batch qua cầu nối mở kết nối ODBC tới SQL Server
@@ -112,16 +113,18 @@ def hydrate(rows):
     for cid in list(ids):
         hit=_cache_get(cid)
         if hit is not None:lookup[cid]=hit;ids.remove(cid)
-    if ids:
+    # Cầu nối nhận tối đa 200 CustID/lần — danh sách lớn (trang Gửi SMS ~1.000 phiếu) phải chia lô, không thì cả lượt
+    # bị từ chối và mọi dòng rơi về bản lưu trên phiếu (mất SĐT/giới tính KK) mà không ai thấy.
+    for i in range(0,len(ids),200):
         try:
-            for r in call('batch',ids=ids)['rows']:
+            for r in call('batch',ids=ids[i:i+200])['rows']:
                 lookup[str(r['CustID'])]=adapt(r);_cache_put(lookup[str(r['CustID'])])
-        except Unavailable as exc:error=str(exc)
+        except Unavailable as exc:error=str(exc);break
     for row in rows:
         c=lookup.get(str(row.get('pmv_cust_id') or ''))
         row.update(customer_name=c['name'] if c else None,cccd=c['cccd'] if c else None,
                    addr=c['addr'] if c else None,customer_phone=c['phone'] if c else None,
-                   customer_id=c['id'] if c else None,
+                   customer_id=c['id'] if c else None,customer_gender=c.get('gender') if c else None,
                    customer_source_error=error or (None if c else 'Chưa có liên kết khách KK đã xác định.'))
     return rows
 

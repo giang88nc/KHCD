@@ -123,7 +123,8 @@ def context(loan_id):
     legacy=decoded(loan['legacy_json'],{}).get('pawn',{})
     legacy_descriptions=[legacy.get('mota'+str(i)) for i in (1,2) if legacy.get('mota'+str(i))]
     decorate(loan)
-    return dict(loan=loan,customer=customer,customer_live=customer_live,items=items,logs=logs,payments=payments,photos=images.inventory(loan),
+    from . import sms
+    return dict(sms=sms.lich_su_phieu(loan_id),loan=loan,customer=customer,customer_live=customer_live,items=items,logs=logs,payments=payments,photos=images.inventory(loan),
                 labels=C.LABEL,exceptions=exceptions,legacy_descriptions=legacy_descriptions)
 
 @bp.get('/<int:loan_id>/xem')

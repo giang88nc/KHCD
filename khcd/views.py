@@ -233,6 +233,7 @@ def desk_cancel():
         if not pid:raise BusinessError('Thiếu mã phiếu.')
         if live.enabled():
             result=live.process(pid,0,request.form) or {}
+            from . import sms;sms.sau_giao_dich(pid)   # hủy phiên cũng đổi mốc chu kỳ nhắc
             return dict(message='Đã xóa toàn bộ phiếu cầm mới.' if result.get('deleted_loan') else 'Đã xóa phiên, khôi phục phiếu trước giao dịch.',**result)
         if request.form.get('returned_funds')!='yes':raise BusinessError('Xác nhận đã thu hồi đủ tiền trước khi hủy phiên.')
         svc.process_pawn(pid,request.form,'cancel')

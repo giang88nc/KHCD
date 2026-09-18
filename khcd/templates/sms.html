@@ -1,0 +1,68 @@
+{% extends 'base.html' %}{% from '_parts.html' import csrf with context %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='sms.css') }}?v=20260918c"><script defer src="{{ url_for('static',filename='sms.js') }}?v=20260918c"></script>{% endblock %}
+{% macro giu() %}<input type="hidden" name="q" value="{{ filters.q }}"><input type="hidden" name="loai" value="{{ filters.loai }}"><input type="hidden" name="tu" value="{{ filters.tu }}"><input type="hidden" name="tab" value="{{ tab }}">{% endmacro %}
+{% block content %}
+<div class="page-heading"><div><div class="eyebrow">KIỂM SOÁT PHIẾU · NHẮC KHÁCH</div><h1>Gửi SMS</h1><p>Zalo ZNS mẫu {{ mau.template_id if mau else '635511' }} · lên lịch vào sổ <b>khj_bl.zalo_messages</b>, KHBL gửi theo giờ hẹn. Số ngày quá hạn = hôm nay − ngày giao dịch gần nhất: {% for m in qt.muc if m.active %}{{ m.label|lower }} = {{ m.days }} ngày · {% endfor %}từ <b>{{ han_chot }}</b> ngày: chờ thanh lý. Đã nhắc mức nào thì ẩn tới mức kế; có giao dịch mới thì tin chờ tự hủy và nhắc lại từ lần 1. Xưng hô lấy theo giới tính khách trên KK.</p></div>
+<div class="sm-tools"><button type="button" class="btn btn-small" data-open-rules>⚙ Quy tắc nhắc</button><a class="btn btn-small" href="{{ url_for('sms.trang') }}">Làm mới</a></div></div>
+{% for cb in canh_bao %}<div class="notice">{{ icon('info') }} {{ cb }}</div>{% endfor %}
+
+<div class="sm-cols">
+<section class="panel sm-panel">
+ <form class="sm-filter" method="get" action="{{ url_for('sms.trang') }}"><input type="hidden" name="tab" value="{{ tab }}">
+  <div class="sm-chips">{% set chip_muc = [] %}{% for m in qt.muc if m.active %}{% set _ = chip_muc.append((m.key, m.label ~ ' · ' ~ m.days ~ 'd', dem.get(m.key,0))) %}{% endfor %}{% for key,label,n in [('can_nhac','Cần nhắc',dem.can_nhac)] + chip_muc + [('da_lich','Đã có lịch',dem.da_lich),('cho_thanh_ly','Chờ thanh lý',dem.cho_thanh_ly),('loi','Gửi lỗi',dem.loi),('khong_nhac','Không nhắc',dem.khong_nhac),('tat_ca','Tất cả',dem.tat_ca)] %}<button type="submit" name="loai" value="{{ key }}" class="sm-chip {{ 'is-on' if filters.loai==key }}">{{ label }}<b>{{ n }}</b></button>{% endfor %}</div>
+  <div class="sm-row"><label class="sm-search">{{ icon('search') }}<input name="q" value="{{ filters.q }}" placeholder="Mã biên nhận · SĐT · tên khách" autocomplete="off"></label>
+  <select name="tu"><option value="">Mọi tủ</option>{% for v,l in [('1','Tủ 18k'),('2','Tủ 24k'),('3','Tủ đồ lớn')] %}<option value="{{ v }}" {{ 'selected' if filters.tu==v }}>{{ l }}</option>{% endfor %}</select><input type="hidden" name="loai" value="{{ filters.loai }}"><button class="btn btn-small">Lọc</button></div>
+ </form>
+ <div class="sm-head"><h2>Lọc & chọn <small>{{ ung|length }} phiếu</small></h2><label class="sm-all"><input type="checkbox" data-all form="sm-chon"> Chọn tất cả gửi được</label></div>
+ {% if ung %}<div class="table-wrap sm-scroll"><table class="sm-table"><thead><tr><th></th><th>Biên nhận</th><th>Khách · SĐT</th><th class="right">Dư gốc</th><th class="right">GD gần nhất</th><th>Mức</th><th>Đã nhắn</th><th></th></tr></thead><tbody>
+ {% for r in ung %}<tr class="is-{{ r.mau }} {{ 'is-off' if not r.co_the_gui }}">
+  <td>{% if r.co_the_gui and not r.cho %}<input type="checkbox" name="loan" value="{{ r.id }}" data-pick form="sm-chon">{% elif r.cho %}<span title="Đã có tin chờ gửi">🕘</span>{% else %}<span title="{{ r.ly_do }}">⛔</span>{% endif %}</td>
+  <td><a class="code" href="{{ url_for('loans.listing',q=r.sku) }}#xem={{ r.id }}">{{ r.sku }}</a><small>Hẹn {{ r.due_at|datevn }}{% if r.qua_han %} · quá {{ r.qua_han }} ngày{% endif %}{% if r.receipt_lost %} · <em>mất BN</em>{% endif %}</small></td>
+  <td>{{ r.anh_chi }} {{ r.ten_goi or 'Chưa có tên' }}{% if r.customer_gender is none %} <span class="sm-gt" title="KK chưa có giới tính — cập nhật ở hồ sơ khách để xưng hô đúng">⚥?</span>{% endif %}<small>{{ r.sdt_hien or 'Không có SĐT' }}{% if not r.sdt and r.sdt_hien %} · không phải di động{% endif %}</small></td>
+  <td class="right">{{ r.principal_balance|vnd }}</td>
+  <td class="right">{{ r.d }} ngày<small>{{ r.last_at|datevn }}</small></td>
+  <td><span class="sm-tag is-{{ r.mau }}">{{ r.muc_nhan }}</span>{% if r.khong_nhac %}<small class="sm-err">🔕 {{ r.ly_do }}{% if r.mute_reason %} · {{ r.mute_reason }}{% endif %}</small>{% elif r.co_loi %}<small class="sm-err">tin trước gửi lỗi</small>{% endif %}</td>
+  <td>{% if r.cho %}<span class="sm-tag is-cho">Chờ {{ muc_nhan.get(r.cho_muc,'') }} · {{ r.cho_luc|datevn }}</span>{% elif r.tong_gui %}{{ r.tong_gui }} tin<small>gần nhất {{ r.gui_gan_nhat|datevn }}</small>{% else %}<span class="muted">chưa</span>{% endif %}</td>
+  <td class="right"><details class="sm-mute"><summary title="Tắt / hoãn nhắc biên nhận này">{{ '🔔' if r.khong_nhac else '🔕' }}</summary>
+   <form method="post" action="{{ url_for('sms.dat_nhac_route',loan_id=r.id) }}">{{ csrf() }}{{ giu() }}
+    {% if r.khong_nhac %}<p>{{ r.ly_do }}{% if r.mute_reason %} — {{ r.mute_reason }}{% endif %}{% if r.mute_by %} ({{ r.mute_by }}){% endif %}</p><button class="btn btn-small" name="che_do" value="bat">🔔 Nhắc lại bình thường</button>
+    {% else %}<label>Lý do<input name="ly_do" maxlength="255" required placeholder="vd. khách hẹn 25/09 ra gia hạn"></label><label>Hoãn đến ngày<input type="date" name="den_ngay" min="{{ today_iso }}"></label>
+    <div class="sm-mute-btns"><button class="btn btn-small" name="che_do" value="hoan">⏸ Hoãn đến ngày</button><button class="btn btn-small sm-huy" name="che_do" value="tat">🔕 Tắt hẳn</button></div>{% endif %}
+   </form></details></td>
+ </tr>{% endfor %}</tbody></table></div>
+ <form method="post" action="{{ url_for('sms.len_lich_route') }}" id="sm-chon" class="sm-act">{{ csrf() }}{{ giu() }}
+  <label>Mức nhắc<select name="muc_chon"><option value="">Tự theo số ngày</option>{% for m in qt.muc if m.active %}<option value="{{ m.key }}">{{ m.label }} (≥{{ m.days }} ngày)</option>{% endfor %}</select></label>
+  <label>Giờ gửi<input type="datetime-local" name="gio" value="{{ gio_mac_dinh }}" required></label>
+  <label class="sm-wide">Nhắc hẹn (biến notes) — trống = câu mẫu theo mức trong ⚙ Quy tắc nhắc<input name="ghi_chu" maxlength="200" placeholder="Để trống dùng câu mẫu"></label>
+  <button class="btn btn-primary" data-submit disabled>→ Lên lịch <b data-count>0</b> tin</button></form>
+ {% else %}<div class="empty-state"><strong>Không có phiếu nào trong nhóm này.</strong><p>Phiếu đã nhắc sẽ tự hiện lại khi tới mức kế tiếp.</p></div>{% endif %}
+</section>
+
+<section class="panel sm-panel">
+ <div class="sm-head"><h2>Lịch gửi <small>cd_sms_log ⇄ khj_bl.zalo_messages (khcd_pawn)</small></h2>
+  <nav class="sm-tabs">{% for key,label in [('cho','Chờ gửi'),('gui','Đã gửi'),('loi','Lỗi'),('huy','Đã hủy')] %}<a class="{{ 'is-on' if tab==key }}" href="{{ url_for('sms.trang',tab=key,q=filters.q,loai=filters.loai,tu=filters.tu) }}">{{ label }}<b>{{ tong[key] }}</b></a>{% endfor %}</nav></div>
+ {% if lich %}
+ {% if tab=='cho' %}<form method="post" action="{{ url_for('sms.doi_gio_route') }}" class="sm-bulk" id="sm-bulk">{{ csrf() }}{{ giu() }}<label><input type="checkbox" data-all-msg> Chọn tất cả</label><label>Dời sang<input type="datetime-local" name="gio" value="{{ gio_mac_dinh }}" required></label><button class="btn btn-small" data-bulk disabled>Dời <b data-bulk-count>0</b> tin</button></form>{% endif %}
+ <div class="table-wrap sm-scroll"><table class="sm-table sm-lich"><thead><tr>{% if tab=='cho' %}<th></th>{% endif %}<th>Giờ gửi</th><th>Biên nhận · Mức</th><th>Nội dung</th><th>Trạng thái</th><th></th></tr></thead><tbody>
+ {% for m in lich %}<tr>
+  {% if tab=='cho' %}<td><input type="checkbox" name="msg" value="{{ m.id }}" form="sm-bulk" data-pick-msg></td>{% endif %}
+  <td class="sm-when">{% if m.sua_duoc %}<input type="datetime-local" name="gio" value="{{ m.scheduled_local }}" form="sm-sua-{{ m.id }}" required>{% else %}{{ m.scheduled_at }}{% endif %}<small>#{{ m.id }} · {{ m.created_username or '—' }} · {{ m.created_at|datevn }}</small></td>
+  <td><a class="code" href="{{ url_for('loans.listing',q=m.sku) }}#xem={{ m.loan_id }}">{{ m.sku }}</a><small><b>{{ m.muc_nhan }}</b> · d={{ m.d_days }} · {{ m.bien.get('anh_chi','') }} {{ m.bien.get('customer_name','') }}</small></td>
+  <td class="sm-noi-dung">{% if m.sua_duoc %}<div class="sm-inline"><select name="anh_chi" form="sm-sua-{{ m.id }}">{% for v in ['Anh','Chị','Anh/Chị'] %}<option {{ 'selected' if m.bien.get('anh_chi')==v }}>{{ v }}</option>{% endfor %}</select><input name="notes" form="sm-sua-{{ m.id }}" value="{{ m.bien.get('notes','') }}" maxlength="200" placeholder="Nhắc hẹn"></div>{% else %}<b>{{ m.bien.get('notes','') }}</b>{% endif %}<details class="sm-preview"><summary>Xem tin</summary><pre>{{ xem_truoc(m.bien) }}</pre></details></td>
+  <td><span class="sm-tag is-{{ 'cho' if m.status in ('queued','retry','sending') else 'ok' if m.status in ('sent','delivered','seen') else 'bad' if m.status.startswith('failed') or m.status=='missing' else '' }}">{{ 'mất bên sổ KHBL' if m.status=='missing' else m.status }}</span>{% if m.sent_at %}<small>gửi {{ m.sent_at }}</small>{% endif %}{% if m.cancel_reason %}<small>{{ m.cancel_reason }}</small>{% endif %}</td>
+  <td class="right sm-btns">{% if m.sua_duoc %}<form method="post" action="{{ url_for('sms.sua_route',mid=m.id) }}" id="sm-sua-{{ m.id }}">{{ csrf() }}{{ giu() }}<button class="btn btn-small">Lưu</button></form><form method="post" action="{{ url_for('sms.huy_route',mid=m.id) }}" data-confirm="Hủy tin #{{ m.id }} cho {{ m.sku }}?">{{ csrf() }}{{ giu() }}<input type="hidden" name="ly_do" value="Cầm đồ hủy tại trang Gửi SMS"><button class="btn btn-small sm-huy">Hủy</button></form>{% endif %}</td>
+ </tr>{% endfor %}</tbody></table></div>
+ {% else %}<div class="empty-state"><strong>{{ {'cho':'Chưa có tin nào chờ gửi.','gui':'Chưa có tin nào đã gửi.','loi':'Không có tin lỗi.','huy':'Không có tin đã hủy.'}[tab] }}</strong><p>Chọn phiếu ở cột trái rồi bấm Lên lịch.</p></div>{% endif %}
+</section>
+</div>
+<dialog id="sm-rules" class="sm-rules" aria-label="Quy tắc nhắc"><form method="post" action="{{ url_for('sms.quy_tac_route') }}">{{ csrf() }}{{ giu() }}
+ <div class="sm-head"><h2>Quy tắc nhắc <small>bảng cd_sms_rules · số ngày quá hạn tính từ giao dịch gần nhất</small></h2><button type="button" class="lm-close" data-close-rules aria-label="Đóng">×</button></div>
+ <table class="sm-table sm-rules-table"><thead><tr><th>Lần</th><th>Dùng</th><th>Tên mức</th><th>Từ ngày</th><th>Câu nhắc (biến notes, ≤ 200 ký tự)</th></tr></thead><tbody>
+ {% for m in qt.muc %}<tr><td><b>{{ m.no }}</b></td><td><input type="checkbox" name="active_{{ m.no }}" value="1" {{ 'checked' if m.active }} {{ 'disabled' if not duoc_sua_quy_tac }}></td><td><input name="label_{{ m.no }}" value="{{ m.label }}" maxlength="60" {{ 'readonly' if not duoc_sua_quy_tac }}></td><td><input type="number" name="days_{{ m.no }}" value="{{ m.days }}" min="1" max="720" {{ 'readonly' if not duoc_sua_quy_tac }}></td><td><textarea name="notes_{{ m.no }}" maxlength="200" rows="2" {{ 'readonly' if not duoc_sua_quy_tac }}>{{ m.notes }}</textarea></td></tr>{% endfor %}
+ </tbody></table>
+ <div class="sm-rules-chung"><label>Hạn chót chờ thanh lý (ngày)<input type="number" name="han_chot" value="{{ qt.han_chot }}" min="2" max="1000" {{ 'readonly' if not duoc_sua_quy_tac }}></label><label>Gửi từ (giờ)<input type="number" name="gio_tu" value="{{ qt.gio_tu }}" min="0" max="23" {{ 'readonly' if not duoc_sua_quy_tac }}></label><label>đến (giờ)<input type="number" name="gio_den" value="{{ qt.gio_den }}" min="1" max="24" {{ 'readonly' if not duoc_sua_quy_tac }}></label><label>Giờ gửi mặc định<input type="number" name="gio_mac_dinh" value="{{ qt.gio_mac_dinh }}" min="0" max="23" {{ 'readonly' if not duoc_sua_quy_tac }}></label><label>Xưng hô khi KK chưa có giới tính<input name="xung_ho_mac_dinh" value="{{ qt.xung_ho_mac_dinh }}" maxlength="30" {{ 'readonly' if not duoc_sua_quy_tac }}></label></div>
+ <p class="muted">Biến dùng được trong câu nhắc: {% for b in bien_notes %}<code>{{ '{' ~ b ~ '}' }}</code> {% endfor %}— <code>{ngay_thanh_ly}</code> = ngày giao dịch gần nhất + hạn chót. Thân tin do Zalo duyệt (mẫu 635511), chỉ thay được 6 biến; không chèn đường link. Xưng hô: KK Gender = Nam → Anh · Nữ → Chị · chưa có → ô bên trên. Tên khách tự bỏ tiền tố "Anh/Chị" ở đầu.</p>
+ {% if lich_su_qt %}<details class="sm-preview"><summary>Lịch sử sửa quy tắc ({{ lich_su_qt|length }})</summary><table class="sm-table"><tbody>{% for h in lich_su_qt %}<tr><td>{{ h.changed_at }}</td><td>{{ h.username }}</td><td>{{ h.target }}</td><td><small>{{ h.old_json }}</small></td><td><small>→ {{ h.new_json }}</small></td></tr>{% endfor %}</tbody></table></details>{% endif %}
+ <div class="sm-rules-foot">{% if duoc_sua_quy_tac %}<button class="btn btn-primary">Lưu quy tắc</button>{% else %}<span class="muted">Chỉ tài khoản quản trị được sửa quy tắc.</span>{% endif %}<button type="button" class="btn" data-close-rules>Đóng</button></div>
+</form></dialog>
+{% endblock %}

@@ -1,0 +1,77 @@
+/* sms.css — trang GỬI SMS (tiền tố .sm-): 2 cột = LỌC & CHỌN · LỊCH GỬI. Nhịp 3–6px như compact.css. */
+.sm-tools{display:flex;gap:6px}
+.sm-cols{display:grid;grid-template-columns:1.15fr 1fr;gap:6px;align-items:start}
+.sm-panel{padding:6px}
+.sm-head{display:flex;justify-content:space-between;align-items:center;gap:6px;margin:4px 0}
+.sm-head h2{margin:0;font-size:12px;letter-spacing:.7px;text-transform:uppercase;color:var(--ruby);display:flex;align-items:baseline;gap:6px}
+.sm-head h2 small{font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted);font-weight:400}
+.sm-all{font-size:10px;color:var(--muted);display:flex;align-items:center;gap:4px;margin:0}
+.sm-filter{display:flex;flex-direction:column;gap:4px;padding:4px 0 6px;border-bottom:1px solid var(--line)}
+.sm-chips{display:flex;flex-wrap:wrap;gap:4px}
+.sm-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid #e6d2d3;border-radius:999px;font-size:10px;font-weight:600;color:#86535a;background:#fffdfa;cursor:pointer}
+.sm-chip b{min-width:16px;padding:0 4px;border-radius:999px;background:#f3e3e4;color:var(--ruby-deep);font-size:10px;text-align:center}
+.sm-chip.is-on{background:var(--ruby);border-color:var(--ruby);color:#fff}.sm-chip.is-on b{background:#ffffff33;color:#fff}
+.sm-row{display:flex;gap:6px;align-items:center}
+.sm-search{flex:1;position:relative;margin:0}
+.sm-search .icon{position:absolute;left:8px;top:50%;transform:translateY(-50%);width:14px;height:14px;color:#a88b90}
+.sm-search input{padding-left:26px;height:30px;font-size:11px}
+.sm-row select{height:30px;font-size:11px;width:auto}
+.sm-row .btn{height:30px}
+.sm-scroll{max-height:60vh;overflow:auto;border:1px solid var(--line);border-radius:6px}
+.sm-table{width:100%;min-width:0;border-collapse:collapse;font-size:11px}
+.sm-table th{position:sticky;top:0;z-index:1;background:#fff;text-align:left;font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:4px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.sm-table td{padding:4px 6px;border-bottom:1px solid #f3e9e7;vertical-align:middle}
+.sm-table small{display:block;font-size:10px;color:var(--muted)}
+.sm-table .right{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.sm-table tr.is-off td{opacity:.55}
+.sm-table tr.is-bad td:nth-child(2){box-shadow:inset 3px 0 0 var(--red)}
+.sm-table input[type=checkbox]{width:15px;height:15px;margin:0}
+.sm-tag{display:inline-block;padding:2px 7px;border-radius:5px;font-size:10px;font-weight:700;white-space:nowrap;background:#f1f4f1;color:#6b7a70}
+.sm-tag.is-ok{background:#e8f4ec;color:#237447}.sm-tag.is-warn{background:#fbf1dc;color:#9a6d13}.sm-tag.is-bad{background:#fcdfe2;color:#b52d42}.sm-tag.is-cho{background:#e9eef8;color:#3b5998}
+.sm-act{display:grid;grid-template-columns:1fr 1fr;gap:6px;align-items:end;padding:6px 0 0}
+.sm-act label{display:flex;flex-direction:column;gap:3px;margin:0;font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px}
+.sm-act label.sm-wide{grid-column:1/-1}
+.sm-act input,.sm-act select{height:30px;font-size:11px}
+.sm-act .btn{height:34px;grid-column:1/-1;margin:0}
+.sm-tabs{display:flex;gap:4px}
+.sm-tabs a{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border:1px solid #e6d2d3;border-radius:999px;font-size:10px;font-weight:600;color:#86535a}
+.sm-tabs a b{min-width:16px;padding:0 4px;border-radius:999px;background:#f3e3e4;color:var(--ruby-deep);text-align:center}
+.sm-tabs a.is-on{background:var(--ruby);border-color:var(--ruby);color:#fff}.sm-tabs a.is-on b{background:#ffffff33;color:#fff}
+.sm-bulk{display:flex;align-items:center;gap:8px;padding:4px 0 6px;font-size:10px;color:var(--muted)}
+.sm-bulk label{display:flex;align-items:center;gap:4px;margin:0}
+.sm-bulk input[type=datetime-local]{height:28px;font-size:11px}
+.sm-bulk .btn{height:28px;margin:0}
+.sm-when input{height:28px;font-size:11px;width:158px}
+.sm-inline{display:flex;gap:4px}
+.sm-inline select{width:78px;height:26px;font-size:11px}
+.sm-inline input{height:26px;font-size:11px;flex:1;min-width:120px}
+.sm-noi-dung{max-width:280px}
+.sm-preview summary{font-size:10px;color:var(--ruby);cursor:pointer}
+.sm-preview pre{white-space:pre-wrap;font:10px/1.4 var(--f-body);background:#fbf5f3;padding:6px;border-radius:6px;margin:3px 0 0;max-width:280px}
+.sm-btns form{display:inline-block;margin:0 0 0 3px}
+.sm-btns .btn{height:26px;padding:0 8px;font-size:10px;margin:0}
+.sm-huy{color:var(--red);border-color:#e4b3b8}
+.sm-err{color:var(--red)}
+@media(max-width:1100px){.sm-cols{grid-template-columns:1fr}}
+/* Tắt / hoãn nhắc từng biên nhận */
+.sm-mute{position:relative;display:inline-block}
+.sm-mute summary{list-style:none;cursor:pointer;font-size:13px;padding:0 4px}
+.sm-mute summary::-webkit-details-marker{display:none}
+.sm-mute[open] form{position:absolute;right:0;top:22px;z-index:5;width:250px;padding:6px;border:1px solid #e5c7b5;border-radius:8px;background:#fffdfa;box-shadow:0 8px 24px #35101e33;display:grid;gap:4px;text-align:left}
+.sm-mute label{display:flex;flex-direction:column;gap:2px;margin:0;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sm-mute input{height:28px;font-size:11px}
+.sm-mute p{margin:0;font-size:11px}
+.sm-mute-btns{display:flex;gap:4px}.sm-mute-btns .btn{flex:1;height:28px;margin:0}
+form.sm-act{margin:0}
+/* Popup ⚙ Quy tắc nhắc */
+.sm-rules{width:min(980px,calc(100vw - 24px));padding:8px;border:1px solid #e5c7b5;border-radius:12px;background:#fffdfa;color:var(--ink);box-shadow:0 24px 80px #35101e55}
+.sm-rules::backdrop{background:#23111b80;backdrop-filter:blur(3px)}
+.sm-rules-table input,.sm-rules-table textarea{width:100%;font-size:11px;padding:3px 5px}
+.sm-rules-table input[type=number]{width:70px}.sm-rules-table input[type=checkbox]{width:15px}
+.sm-rules-table textarea{resize:vertical;min-height:34px}
+.sm-rules-chung{display:grid;grid-template-columns:repeat(5,1fr);gap:6px;margin:6px 0}
+.sm-rules-chung label{display:flex;flex-direction:column;gap:2px;margin:0;font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--muted)}
+.sm-rules-chung input{height:28px;font-size:11px}
+.sm-rules-foot{display:flex;justify-content:flex-end;gap:6px;margin-top:6px}.sm-rules-foot .btn{margin:0;height:32px}
+.sm-rules code{background:#f3e3e4;border-radius:4px;padding:0 4px;font-size:10px}
+.sm-gt{color:#9a6d13;font-size:10px;cursor:help}

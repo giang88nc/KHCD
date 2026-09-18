@@ -320,6 +320,7 @@ def preview(lid):
 def commit(lid):
     try:
         op=int(request.form.get('operation','0'));process(lid,op,request.form,request.files)
+        from . import sms;sms.sau_giao_dich(lid)   # khách vừa giao dịch → tự hủy tin nhắc đang chờ (không bao giờ ném lỗi)
         return {'message':'Đã ghi nhận phiên vào SQL mới.','sku':loan(lid)['sku']}
     except (BusinessError,ValueError) as exc:return {'error':str(exc)},409
 
