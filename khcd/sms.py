@@ -76,7 +76,10 @@ DDL += ["""CREATE TABLE IF NOT EXISTS cd_sms_rules (
   id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, changed_at DATETIME NOT NULL, username VARCHAR(150) NOT NULL,
   target VARCHAR(40) NOT NULL, old_json TEXT NOT NULL, new_json TEXT NOT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci"""]
-CAI_DAT_MAC_DINH = {'han_chot': str(HAN_CHOT), 'gio_tu': str(GIO_GUI_TU), 'gio_den': str(GIO_GUI_DEN), 'gio_mac_dinh': '9', 'xung_ho_mac_dinh': XUNG_HO_MAC_DINH}
+CAI_DAT_MAC_DINH = {'han_chot': str(HAN_CHOT), 'gio_tu': str(GIO_GUI_TU), 'gio_den': str(GIO_GUI_DEN), 'gio_mac_dinh': '9', 'xung_ho_mac_dinh': XUNG_HO_MAC_DINH,
+                    # Xưng hô suy từ customer_name (GĐ chốt 18/09/2026) — sửa được trong ⚙ Quy tắc nhắc, ngăn bằng dấu phẩy
+                    'tien_to_chi': 'Chị, Cô, Bà, Dì', 'tien_to_anh': 'Anh, Chú, Cậu, Bác, Ông', 'lot_chi': 'Thị, Mỹ', 'lot_anh': 'Văn, Tấn'}
+KHOA_TU = ('tien_to_chi', 'tien_to_anh', 'lot_chi', 'lot_anh')
 _schema_ok = set()
 
 
@@ -100,7 +103,8 @@ def quy_tac():
     muc = [dict(key='nhac%d' % r['level_no'], no=int(r['level_no']), days=int(r['days']), label=r['label'], notes=r['notes'], active=bool(r['active']),
                 mau=MUC_MAU.get('nhac%d' % r['level_no'], ''), updated_username=r['updated_username'], updated_at=r['updated_at']) for r in rows]
     g.sms_quy_tac = dict(muc=muc, dang_dung=sorted([m for m in muc if m['active']], key=lambda m: -m['days']), nhan={m['key']: m['label'] for m in muc},
-                         han_chot=int(cd['han_chot']), gio_tu=int(cd['gio_tu']), gio_den=int(cd['gio_den']), gio_mac_dinh=int(cd['gio_mac_dinh']), xung_ho_mac_dinh=cd['xung_ho_mac_dinh'][:30])
+                         han_chot=int(cd['han_chot']), gio_tu=int(cd['gio_tu']), gio_den=int(cd['gio_den']), gio_mac_dinh=int(cd['gio_mac_dinh']), xung_ho_mac_dinh=cd['xung_ho_mac_dinh'][:30],
+                         **{k: [w.strip().casefold() for w in cd[k].split(',') if w.strip()] for k in KHOA_TU}, **{k + '_goc': cd[k] for k in KHOA_TU})
     return g.sms_quy_tac
 
 def muc_cuoi():
@@ -135,13 +139,19 @@ def luu_quy_tac(form):
     if cd['han_chot'] <= dung[-1]['days']: raise BusinessError('Hạn chót chờ thanh lý phải LỚN HƠN số ngày của lần nhắc cuối (%d).' % dung[-1]['days'])
     if not (0 <= cd['gio_tu'] < cd['gio_den'] <= 24) or not (cd['gio_tu'] <= cd['gio_mac_dinh'] < cd['gio_den']): raise BusinessError('Khung giờ gửi không hợp lệ (giờ mặc định phải nằm trong khung).')
     cd['xung_ho_mac_dinh'] = (str(form.get('xung_ho_mac_dinh', '')).strip() or XUNG_HO_MAC_DINH)[:30]
+    for k in KHOA_TU:
+        ds = [w.strip() for w in str(form.get(k, cu[k + '_goc'])).split(',') if w.strip()]
+        if any(' ' in w or len(w) > 12 for w in ds): raise BusinessError('Danh sách tiền tố / chữ lót: mỗi mục là MỘT từ, ngăn bằng dấu phẩy.')
+        cd[k] = ', '.join(dict.fromkeys(ds))[:200]
+    trung = set(w.casefold() for w in cd['tien_to_chi'].split(', ') + cd['lot_chi'].split(', ')) & set(w.casefold() for w in cd['tien_to_anh'].split(', ') + cd['lot_anh'].split(', ')) - {''}
+    if trung: raise BusinessError('Từ nằm ở cả hai phía Anh và Chị: ' + ', '.join(sorted(trung)))
     for m, c in zip(moi, cu['muc']):
         old = dict(days=c['days'], label=c['label'], notes=c['notes'], active=c['active']); new = dict(days=m['days'], label=m['label'], notes=m['notes'], active=m['active'])
         if old != new:
             db.execute('UPDATE cd_sms_rules SET days=%s,label=%s,notes=%s,active=%s,updated_username=%s,updated_at=%s WHERE level_no=%s', (m['days'], m['label'], m['notes'], 1 if m['active'] else 0, uname, bay_gio, m['no']))
             db.execute('INSERT INTO cd_sms_rules_history (changed_at,username,target,old_json,new_json) VALUES (%s,%s,%s,%s,%s)', (bay_gio, uname, 'nhac%d' % m['no'], json.dumps(old, ensure_ascii=False), json.dumps(new, ensure_ascii=False)))
     for k, v in cd.items():
-        old = str(cu[k]) if k in cu else ''
+        old = str(cu[k + '_goc']) if k in KHOA_TU else (str(cu[k]) if k in cu else '')
         if old != str(v):
             db.execute('INSERT INTO cd_sms_settings (k,v,updated_username,updated_at) VALUES (%s,%s,%s,%s) ON DUPLICATE KEY UPDATE v=VALUES(v),updated_username=VALUES(updated_username),updated_at=VALUES(updated_at)', (k, str(v), uname, bay_gio))
             db.execute('INSERT INTO cd_sms_rules_history (changed_at,username,target,old_json,new_json) VALUES (%s,%s,%s,%s,%s)', (bay_gio, uname, k, json.dumps(old), json.dumps(str(v))))
@@ -167,17 +177,33 @@ def chuan_hoa_sdt(value):
     if local[1] not in '35789': return None
     return digits, local, local[:3] + '***' + local[-3:], hashlib.sha256((TIEN_TO_BAM + digits).encode()).hexdigest()
 
+def _tu(ten):
+    return ' '.join(str(ten or '').split()).split(' ') if str(ten or '').strip() else []
+
 def anh_chi_cua(gioi_tinh, ten=None):
-    """Xưng hô (GĐ chốt 18/09/2026, phương án b):
-      1. Tên trên KK có tiền tố "Anh …" / "Chị …" ⇒ TIỀN TỐ THẮNG — vì Gender=False trên KK phần lớn là giá trị mặc định
-         lúc nhập khách (đo thật: 81/90 khách tên "Anh …" đang mang Gender=Nữ), tiền tố do quầy gõ tay mới là ý thật.
-      2. Không có tiền tố ⇒ theo I_CUSTOMER.Gender: True → Anh · False → Chị.
-      3. Chưa có gì ⇒ xưng hô mặc định trong cd_sms_settings. KHÔNG đoán theo chữ lót hay tên gọi."""
-    m = re.match(r'^(anh|chị|chi)\s+\S', ' '.join(str(ten or '').split()), flags=re.I)
-    if m: return 'Anh' if m.group(1).lower() == 'anh' else 'Chị'
+    """Xưng hô suy NGAY TỪ customer_name (GĐ chốt 18/09/2026), danh sách từ nằm ở cd_sms_settings:
+      1. TIỀN TỐ đầu tên (phải còn ít nhất 1 từ phía sau): Chị/Cô/Bà/Dì → Chị · Anh/Chú/Cậu/Bác/Ông → Anh.
+      2. CHỮ LÓT — chỉ xét tên từ 3 TỪ trở lên và chỉ các từ ở GIỮA (không phải họ, không phải tên gọi):
+         Thị/Mỹ → Chị · Văn/Tấn → Anh. Từ khớp ĐẦU TIÊN tính từ trái sang quyết định.
+      3. Không khớp gì ⇒ chỉ tin I_CUSTOMER.Gender = True → Anh (GĐ: ~99% đúng). Gender = False KHÔNG đủ tin (phần lớn là
+         giá trị mặc định lúc nhập khách) ⇒ tên chưa xác nhận là nữ thì coi như None ⇒ xưng hô mặc định "Anh/Chị".
+    So khớp không phân biệt HOA/thường nhưng PHẢI ĐÚNG DẤU ("Van" không phải "Văn", "Vân" là tên nữ)."""
+    qt = quy_tac(); tu = [w.casefold() for w in _tu(ten)]
+    if len(tu) >= 2:
+        if tu[0] in qt['tien_to_chi']: return 'Chị'
+        if tu[0] in qt['tien_to_anh']: return 'Anh'
+    if len(tu) >= 3:
+        for w in tu[1:-1]:
+            if w in qt['lot_chi']: return 'Chị'
+            if w in qt['lot_anh']: return 'Anh'
     if gioi_tinh is True: return 'Anh'
-    if gioi_tinh is False: return 'Chị'
-    return quy_tac()['xung_ho_mac_dinh']
+    return qt['xung_ho_mac_dinh']      # Gender False/None: không gọi 'Chị' khi tên chưa xác nhận là nữ
+
+def ten_khong_tien_to(ten):
+    """Bỏ tiền tố xưng hô ở ĐẦU tên (cả hai danh sách): 'Chị Quỳnh' → 'Quỳnh' · 'Chú Tư Hùng' → 'Tư Hùng'. Chỉ còn 1 từ thì giữ nguyên."""
+    tu = _tu(ten); qt = quy_tac()
+    if len(tu) >= 2 and tu[0].casefold() in qt['tien_to_chi'] + qt['tien_to_anh']: tu = tu[1:]
+    return ' '.join(tu)
 
 def che_ma(ma):
     """'KH22604018242' → 'KH******18242': giữ 2 ký tự đầu + 5 ký tự cuối, che phần giữa (GĐ chốt 18/09/2026).
@@ -186,12 +212,6 @@ def che_ma(ma):
     ma = str(ma or '').strip()
     if len(ma) <= 7: return '*' * max(0, len(ma) - 3) + ma[-3:]
     return ma[:2] + '*' * (len(ma) - 7) + ma[-5:]
-
-def ten_khong_tien_to(ten):
-    """'Chị Quỳnh' → 'Quỳnh' · 'Anh Tuấn' → 'Tuấn'. Chỉ bóc tiền tố Anh/Chị ở ĐẦU tên; bóc xong rỗng thì giữ nguyên."""
-    goc = ' '.join(str(ten or '').split())
-    moi = re.sub(r'^(anh|chị|chi)\s+', '', goc, flags=re.I).strip()
-    return moi or goc
 
 def phan_loai(d):
     """Mức TỚI HẠN theo số ngày: '' | nhac1..nhac4 (d ≥ 67 vẫn là nhac4 — tin cuối phải tới tay khách trước khi thanh lý)."""

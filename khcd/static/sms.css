@@ -98,3 +98,4 @@ form.sm-act{margin:0}
 .zns-btn{display:block;margin-top:4px;padding:11px;border-radius:9px;background:#0068ff;color:#fff;text-align:center;font-weight:700;font-size:16px}
 .sm-rule-sel{height:26px;font-size:11px;font-weight:700;padding:0 4px;border-radius:5px;max-width:170px}
 .sm-rule-sel.is-ok{background:#e8f4ec;color:#237447}.sm-rule-sel.is-warn{background:#fbf1dc;color:#9a6d13}.sm-rule-sel.is-bad{background:#fcdfe2;color:#b52d42}
+.sm-rules-xungho{grid-template-columns:repeat(4,1fr)}

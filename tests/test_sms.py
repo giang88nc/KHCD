@@ -52,13 +52,21 @@ def test_phan_loai_sdt_xung_ho_ten(so_zns):
         assert [S.phan_loai(d) for d in (14, 15, 29, 30, 44, 45, 59, 60, 67, 400)] == ['', 'nhac1', 'nhac1', 'nhac2', 'nhac2', 'nhac3', 'nhac3', 'nhac4', 'nhac4', 'nhac4']
         qt = S.quy_tac(); notes = {m['key']: m['notes'] for m in qt['muc']}
         assert 'thanh lý trong 15 ngày' in notes['nhac3'] and 'THANH LÝ trong 7 ngày' in notes['nhac4'] and qt['han_chot'] == 67
-        # Xưng hô CHỈ theo Gender của KK — không đoán theo tên
-        assert S.anh_chi_cua(True) == 'Anh' and S.anh_chi_cua(False) == 'Chị' and S.anh_chi_cua(None) == 'Anh/Chị'
-        # Tiền tố trong tên THẮNG Gender khi mâu thuẫn (Gender=False trên KK phần lớn là mặc định); không có tiền tố thì không đoán
-        assert S.anh_chi_cua(False, 'Anh Thành') == 'Anh' and S.anh_chi_cua(True, 'chị Hoa') == 'Chị' and S.anh_chi_cua(None, 'Anh Tuấn') == 'Anh'
-        assert S.anh_chi_cua(None, 'Nguyễn Thị Hoa') == 'Anh/Chị' and S.anh_chi_cua(False, 'Nguyễn Anh Thư') == 'Chị' and S.anh_chi_cua(True, 'Anh') == 'Anh'
-    assert S.ten_khong_tien_to('Chị Quỳnh') == 'Quỳnh' and S.ten_khong_tien_to('Anh Tuấn') == 'Tuấn' and S.ten_khong_tien_to('ANH  TUẤN') == 'TUẤN'
-    assert S.ten_khong_tien_to('Nguyễn Thị Anh') == 'Nguyễn Thị Anh' and S.ten_khong_tien_to('Anh') == 'Anh' and S.ten_khong_tien_to('') == ''
+        # Xưng hô suy từ customer_name: tiền tố → chữ lót (≥3 từ, chỉ từ ở giữa, đúng dấu) → Gender KK → mặc định
+        ac = S.anh_chi_cua
+        assert [ac(None, t) for t in ('Chị Quỳnh', 'Cô Lan', 'BÀ Tám', 'Dì Út')] == ['Chị'] * 4
+        assert [ac(None, t) for t in ('Anh Tuấn', 'chú Tư', 'Cậu Ba', 'Bác Năm', 'ÔNG Bảy')] == ['Anh'] * 5
+        assert ac(False, 'Anh Thành') == 'Anh' and ac(True, 'chị Hoa') == 'Chị'                      # tiền tố thắng Gender
+        assert ac(None, 'Nguyễn Thị Hoa') == 'Chị' and ac(None, 'DƯƠNG THỊ HẢI VÂN') == 'Chị' and ac(None, 'Trần Mỹ Linh') == 'Chị'
+        assert ac(None, 'Lê Văn Tám') == 'Anh' and ac(None, 'PHẠM TẤN PHÁT') == 'Anh' and ac(False, 'Lê Văn Tám') == 'Anh'
+        assert ac(None, 'Trần Mỹ') == 'Anh/Chị' and ac(None, 'Văn Thị') == 'Anh/Chị'                   # 2 từ: không xét chữ lót
+        assert ac(None, 'Nguyễn Hồng Vân') == 'Anh/Chị' and ac(None, 'Nguyen Van An') == 'Anh/Chị'     # "Vân" ≠ "Văn"; không dấu thì không đoán
+        assert ac(None, 'Thị Văn Nở') == 'Anh' and ac(None, 'Lê Thị Văn Anh') == 'Chị'                 # chỉ từ Ở GIỮA; từ khớp đầu tiên quyết định
+        # Gender: chỉ tin True → Anh; False mà tên chưa xác nhận nữ thì coi như chưa rõ → 'Anh/Chị' (tên xác nhận nữ thì vẫn 'Chị')
+        assert ac(True, 'Trần Minh Hoàng') == 'Anh' and ac(False, 'Trần Minh Hoàng') == 'Anh/Chị' and ac(False, 'Nguyễn Thái Tài') == 'Anh/Chị'
+        assert ac(False, 'Trần Thị Thủy') == 'Chị' and ac(None, 'Anh') == 'Anh/Chị'
+        tk = S.ten_khong_tien_to
+        assert [tk(t) for t in ('Chị Quỳnh', 'Anh Tuấn', 'ANH  TUẤN', 'Chú Tư Hùng', 'Cô Lan', 'Nguyễn Thị Anh', 'Anh', '')] == ['Quỳnh', 'Tuấn', 'TUẤN', 'Tư Hùng', 'Lan', 'Nguyễn Thị Anh', 'Anh', '']
     d, local, masked, h = S.chuan_hoa_sdt('0912 345 678')
     assert (d, local, masked) == ('84912345678', '0912345678', '091***678') and len(h) == 64
     assert S.chuan_hoa_sdt('+84912345678')[1] == '0912345678' and S.chuan_hoa_sdt('02838123456') is None and S.chuan_hoa_sdt('') is None
