@@ -1,0 +1,44 @@
+{% extends 'base.html' %}{% from '_parts.html' import empty with context %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='loan-list.css') }}?v=20260917b"><script defer src="{{ url_for('static',filename='loan-list.js') }}?v=20260917a"></script>{% endblock %}
+{% block content %}
+<div class="page-heading"><div><div class="eyebrow">SỔ GIAO DỊCH</div><h1>Giao dịch</h1><p>Mọi phiên cầm · gia hạn · trả bớt · chuộc · thanh lý trên sổ SQL mới, mới nhất xếp trên.</p></div><div class="ll-actions"><a class="btn" href="{{ url_for('web.reports',start=filters.d1,end=filters.d2) }}">Thống kê</a><a class="btn btn-primary" href="{{ url_for('web.pawn_new') }}">{{ icon('plus') }} Lập phiếu cầm</a></div></div>
+{% if not available %}<div class="notice">{{ icon('info') }} Chưa bật vận hành SQL mới (CD_LIVE) hoặc chưa đủ bảng cd_loans — sổ giao dịch chưa có dữ liệu để đọc.</div>{% endif %}
+<section class="panel ll-panel">
+ <form class="ll-filter" method="get" action="{{ url_for('giaodich.listing') }}">
+  <div class="ll-dates"><label><span>Từ ngày</span><input type="date" name="d1" value="{{ filters.d1 }}" required></label><span class="ll-arrow">→</span><label><span>Đến ngày</span><input type="date" name="d2" value="{{ filters.d2 }}" required></label><button type="button" class="btn btn-small" data-today>Hôm nay</button></div>
+  <label class="ll-search">{{ icon('search') }}<input name="q" value="{{ filters.q }}" placeholder="Mã biên nhận · SĐT · tên khách · CCCD" aria-label="Tìm giao dịch" autocomplete="off"></label>
+  <label class="ll-state"><span>Loại giao dịch</span><select name="kind" aria-label="Loại giao dịch"><option value="">Tất cả</option>{% for key,label,n in chips %}<option value="{{ key }}" {{ 'selected' if filters.kind==key }}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="btn btn-primary ll-submit">Lọc</button>
+  {% if filters.q or filters.kind or not is_today %}<a class="btn btn-small ll-clear" href="{{ url_for('giaodich.listing') }}">Xóa lọc</a>{% endif %}
+ </form>
+ <div class="ll-summary" aria-live="polite">
+  <div><span>Giao dịch</span><b>{{ data.total|num }}</b></div>
+  <div class="is-money"><span>Tiệm thu</span><b>{{ data.totals.received|vnd }} đ</b></div>
+  <div class="is-warn"><span>Tiệm chi</span><b>{{ data.totals.paid|vnd }} đ</b></div>
+  <div><span>Lãi thu ròng</span><b>{{ data.totals.interest|vnd }} đ</b></div>
+  <p class="ll-hint">Khoảng <b>{{ filters.d1|datevn }}</b> → <b>{{ filters.d2|datevn }}</b>{% if is_today %} (hôm nay){% endif %}{% if filters.q %} · tìm "<b>{{ filters.q }}</b>"{% endif %}. Thu/chi tính trên dòng tiền đã ghi nhận.</p>
+ </div>
+ <div class="gd-chips">{% for key,label,n in chips %}<a class="gd-chip {{ 'is-on' if filters.kind==key }} {{ 'is-zero' if not n }}" href="{{ url_for('giaodich.listing',d1=filters.d1,d2=filters.d2,q=filters.q,kind=key if filters.kind!=key else '') }}">{{ label }}<b>{{ n }}</b></a>{% endfor %}</div>
+ {% if data.rows %}
+ <div class="table-wrap"><table class="ll-table gd-table">
+  <thead><tr><th>Thời gian</th><th>Biên nhận · Khách</th><th>Nghiệp vụ</th><th class="right">Gốc biến động</th><th class="right">Lãi</th><th class="right">Tiền mặt</th><th class="right">Chuyển khoản</th><th class="right">Ròng</th><th>Người xử lý</th><th class="right"></th></tr></thead>
+  <tbody>{% for r in data.rows %}
+  <tr data-loan="{{ r.id }}" class="{{ r.op_class }}">
+   <td class="gd-when">{{ r.when }}<small>{{ 'Nguồn #'~r.legacy_log_id if r.legacy_log_id else 'Phiên #'~r.id }}{% if r.days %} · {{ r.days }} ngày{% endif %}</small></td>
+   <td><button type="button" class="code ll-code" data-view="{{ url_for('giaodich.modal',log_id=r.id) }}">{{ r.sku }}</button><small>{{ r.customer_name or r.phone or 'Chưa có tên' }}{% if r.customer_phone %} · {{ r.customer_phone }}{% elif r.phone and r.customer_name %} · {{ r.phone }}{% endif %}</small></td>
+   <td><span class="gd-op {{ r.op_class }}">{{ r.operation }}</span>{% if r.reverses_log_id %}<small>Đảo phiên #{{ r.reverses_log_id }}</small>{% endif %}</td>
+   <td class="right {{ 'is-plus' if r.principal_change>0 else 'is-minus' if r.principal_change<0 }}">{{ '+' if r.principal_change>0 }}{{ r.principal_change|vnd }}</td>
+   <td class="right">{{ r.interest|vnd }}</td>
+   <td class="right">{{ r.cash|vnd }}</td>
+   <td class="right">{{ r.bank|vnd }}</td>
+   <td class="right money {{ 'is-plus' if r.net_value>0 else 'is-minus' if r.net_value<0 }}">{{ r.net|vnd }}</td>
+   <td>{{ r.actor_legacy or 'Nguồn cũ' }}<small class="ll-clip" title="{{ r.note or '' }}">{{ r.note or '' }}</small></td>
+   <td class="right"><button type="button" class="btn btn-small ll-view" data-view="{{ url_for('giaodich.modal',log_id=r.id) }}">XEM</button></td>
+  </tr>{% endfor %}</tbody>
+ </table></div>
+ {% elif available %}{{ empty('Không có giao dịch nào trong khoảng này.','Đổi khoảng ngày, loại giao dịch hoặc gõ mã / SĐT / tên khách.') }}{% endif %}
+ <div class="pagination"><span>{{ data.total|num }} giao dịch <span class="muted">· Trang {{ data.page }} / {{ data.pages }}</span></span><div>{% if data.page>1 %}<a class="btn btn-small" href="{{ url_for('giaodich.listing',page=data.page-1,**filters) }}">← Trước</a>{% endif %}{% if data.page<data.pages %}<a class="btn btn-small" href="{{ url_for('giaodich.listing',page=data.page+1,**filters) }}">Sau →</a>{% endif %}</div></div>
+ <p class="muted gd-foot">Ròng dương = tiệm THU, âm = tiệm CHI. Phiên hủy có dòng đảo, giữ nguyên nhật ký. Không tính lại lãi lịch sử.</p>
+</section>
+<dialog id="ll-modal" class="ll-modal" aria-label="Chi tiết giao dịch"><div class="ll-modal-body" data-modal-body><p class="ll-loading">Đang tải…</p></div></dialog>
+{% endblock %}

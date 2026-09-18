@@ -1,8 +1,41 @@
-{% extends 'base.html' %}{% from '_parts.html' import pagination,empty with context %}
-{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='loans.css') }}">{% endblock %}
+{% extends 'base.html' %}{% from '_parts.html' import empty with context %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='loan-list.css') }}?v=20260917a"><script defer src="{{ url_for('static',filename='loan-list.js') }}?v=20260917a"></script>{% endblock %}
 {% block content %}
-<div class="page-heading"><div><div class="eyebrow">QUẢN LÝ BIÊN NHẬN</div><h1>Biên nhận</h1><p>Tra cứu phiếu, giao dịch và hồ sơ tài sản.</p></div><a class="btn" href="{{ url_for('web.pawns') }}">Phiếu cũ / Chuyển đổi {{ icon('arrow') }}</a></div>
-<div class="notice">{{ icon('info') }} Vận hành trên cd_loans. Phiếu cũ được giữ riêng để đối soát; không ghi thêm giao dịch vào nguồn cũ.</div>
-<section class="panel loan-panel"><form class="loan-filters" method="get"><input name="q" value="{{ q }}" placeholder="Mã biên nhận, tên, SĐT, CustID…" aria-label="Tìm biên nhận"><select name="state" aria-label="Trạng thái"><option value="all">Tất cả trạng thái</option>{% for key,label in labels.items() %}<option value="{{ key }}" {{ 'selected' if state==key }}>{{ label }}</option>{% endfor %}</select><button class="btn btn-primary">Tìm kiếm</button><span class="muted">{{ total|num }} biên nhận</span></form>
-{% if not available %}<div class="notice">Chưa có đủ bảng SQL mới. Cần hoàn tất bước tạo cấu trúc chuyển đổi.</div>{% elif rows %}<div class="table-wrap"><table class="loan-table"><thead><tr><th>Biên nhận</th><th>Khách hàng KK</th><th>Trạng thái</th><th class="right">Dư gốc</th><th>Dữ liệu</th><th>Thông tin cần kiểm tra</th><th></th></tr></thead><tbody>{% for r in rows %}<tr><td><a class="code" href="{{ url_for('loans.detail',loan_id=r.id) }}">{{ r.sku }}</a><small>{{ r.opened_at|datevn }} {{ '· nguồn #'+r.legacy_pawn_id|string if r.legacy_pawn_id else '· Phiếu mới' }}</small></td><td><strong>{{ r.customer_name or 'Thiếu tên khách' }}</strong><small>{{ r.phone or 'Thiếu SĐT' }} · {{ r.cust_id or 'Thiếu CustID' }}</small></td><td>{{ labels.get(r.loan_state,r.loan_state) }}<small>{{ r.migration_state }}</small></td><td class="right money">{{ r.principal_balance|vnd }} đ</td><td>{{ r.item_count }} món<small>{{ r.log_count }} giao dịch</small></td><td>{% if r.missing %}<details class="loan-issues"><summary>{{ r.missing|length }} điểm cần kiểm tra</summary><ul>{% for issue in r.missing %}<li>{{ issue }}</li>{% endfor %}</ul></details>{% else %}<span class="muted">Mở đối soát để xác nhận</span>{% endif %}</td><td><a class="btn btn-small" href="{{ url_for('loans.detail',loan_id=r.id) }}">Chi tiết / Đối soát</a></td></tr>{% endfor %}</tbody></table></div>{% else %}{{ empty('Chưa có biên nhận phù hợp.','Dùng CHUYỂN ĐỔI tại Phiếu cầm đồ để chuyển từng phiếu có đối soát.') }}{% endif %}{{ pagination(page,pages,total,'loans.listing',{'q':q,'state':state}) }}</section>
+<div class="page-heading"><div><div class="eyebrow">QUẢN LÝ BIÊN NHẬN</div><h1>Biên nhận</h1><p>Phiếu cầm đang vận hành trên sổ SQL mới · xếp theo giao dịch gần nhất.</p></div><div class="ll-actions"><a class="btn" href="{{ url_for('web.pawns') }}">Phiếu cũ / Chuyển đổi</a><a class="btn btn-primary" href="{{ url_for('web.pawn_new') }}">{{ icon('plus') }} Lập phiếu cầm</a></div></div>
+{% if not available %}<div class="notice">{{ icon('info') }} Chưa có đủ bảng SQL mới. Cần hoàn tất bước tạo cấu trúc chuyển đổi.</div>{% endif %}
+<section class="panel ll-panel">
+ <form class="ll-filter" method="get" action="{{ url_for('loans.listing') }}">
+  <div class="ll-dates"><label><span>Từ ngày</span><input type="date" name="d1" value="{{ filters.d1 }}" required></label><span class="ll-arrow">→</span><label><span>Đến ngày</span><input type="date" name="d2" value="{{ filters.d2 }}" required></label><button type="button" class="btn btn-small" data-today>Hôm nay</button></div>
+  <label class="ll-search">{{ icon('search') }}<input name="q" value="{{ filters.q }}" placeholder="Mã biên nhận · SĐT · tên khách" aria-label="Tìm biên nhận" autocomplete="off"></label>
+  <label class="ll-state"><span>Trạng thái</span><select name="state" aria-label="Trạng thái">{% for key,label in state_filters %}<option value="{{ key }}" {{ 'selected' if filters.state==key }}>{{ label }}</option>{% endfor %}</select></label>
+  <button class="btn btn-primary ll-submit">Lọc</button>
+  {% if filters.q or filters.state!='all' or not is_today %}<a class="btn btn-small ll-clear" href="{{ url_for('loans.listing') }}">Xóa lọc</a>{% endif %}
+ </form>
+ <div class="ll-summary" aria-live="polite">
+  <div><span>Biên nhận</span><b>{{ total|num }}</b></div>
+  <div><span>Đang cầm</span><b>{{ summary.active|num }}</b></div>
+  <div class="{{ 'is-warn' if summary.overdue }}"><span>Quá hạn</span><b>{{ summary.overdue|num }}</b></div>
+  <div class="is-money"><span>Tổng dư gốc</span><b>{{ summary.principal|vnd }} đ</b></div>
+  <p class="ll-hint">{% if filters.q %}Đang tìm theo "<b>{{ filters.q }}</b>" trên toàn bộ sổ — khoảng ngày không áp dụng.{% else %}Phiếu có giao dịch từ <b>{{ filters.d1|datevn }}</b> đến <b>{{ filters.d2|datevn }}</b>{% if is_today %} (hôm nay){% endif %}.{% endif %}</p>
+ </div>
+ {% if rows %}
+ <div class="table-wrap"><table class="ll-table">
+  <thead><tr><th>Biên nhận</th><th>Khách hàng</th><th>Tài sản</th><th class="right">Dư gốc</th><th class="right">Lãi / tháng</th><th>Hẹn chuộc</th><th>Giao dịch gần nhất</th><th>Trạng thái</th><th class="right"></th></tr></thead>
+  <tbody>{% for r in rows %}
+  <tr data-loan="{{ r.id }}" class="{{ 'is-overdue' if r.overdue_days }}">
+   <td><button type="button" class="code ll-code" data-view="{{ url_for('loans.modal',loan_id=r.id) }}">{{ r.sku }}</button><small>Lập {{ r.opened_at|datevn }}{% if r.receipt_lost %} · <em class="ll-lost">Mất biên nhận</em>{% endif %}</small></td>
+   <td><strong>{{ r.customer_name or 'Chưa có tên' }}</strong><small>{{ r.customer_phone or r.phone or 'Thiếu SĐT' }}{% if not r.cust_id %} · <em class="ll-lost">Chưa nối KK</em>{% endif %}</small></td>
+   <td>{% if r.item_count %}{{ r.item_count }} món<small class="ll-clip" title="{{ r.first_item or '' }}">{{ r.first_item or '' }}</small>{% else %}<span class="muted">Chưa tách món</span>{% endif %}</td>
+   <td class="right money">{{ r.principal_balance|vnd }}</td>
+   <td class="right">{{ r.monthly_rate|rate }}%</td>
+   <td>{{ r.due_at|datevn }}{% if r.overdue_days %}<small class="ll-over">Quá {{ r.overdue_days }} ngày</small>{% endif %}</td>
+   <td>{{ r.last_op_label }}<small>{{ r.last_at_label }}{% if r.log_count %} · {{ r.log_count }} phiên{% endif %}</small></td>
+   <td><span class="badge {{ r.state_class }}"><i></i>{{ r.state_label }}</span></td>
+   <td class="right"><button type="button" class="btn btn-small ll-view" data-view="{{ url_for('loans.modal',loan_id=r.id) }}">XEM</button></td>
+  </tr>{% endfor %}</tbody>
+ </table></div>
+ {% elif available %}{{ empty('Không có biên nhận nào khớp bộ lọc.','Đổi khoảng ngày, trạng thái hoặc gõ mã / SĐT / tên khách để tìm trên toàn bộ sổ.') }}{% endif %}
+ <div class="pagination"><span>{{ total|num }} biên nhận <span class="muted">· Trang {{ page }} / {{ pages }}</span></span><div>{% if page>1 %}<a class="btn btn-small" href="{{ url_for('loans.listing',page=page-1,**filters) }}">← Trước</a>{% endif %}{% if page<pages %}<a class="btn btn-small" href="{{ url_for('loans.listing',page=page+1,**filters) }}">Sau →</a>{% endif %}</div></div>
+</section>
+<dialog id="ll-modal" class="ll-modal" aria-label="Chi tiết biên nhận"><div class="ll-modal-body" data-modal-body><p class="ll-loading">Đang tải…</p></div></dialog>
 {% endblock %}

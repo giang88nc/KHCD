@@ -8,3 +8,7 @@ body[data-photo-group="products"] .kh-anh{display:grid!important;grid-template-c
 body[data-photo-group="products"] .kh-anh__khung{height:130px!important}
 body[data-pawn-photos="1"] .kh-anh__khung:has(img){cursor:zoom-in}
 body[data-pawn-photos="1"] .kh-anh__khung:focus-visible{outline:2px solid #963e55;outline-offset:-2px}
+
+/* 📁 · 📷 · ✂ — ba nút bằng nhau, emoji rõ (GĐ chốt 18/09/2026; chữ Chọn/Chụp đã đổi thành icon ở KHBL _pawn_photos.html) */
+body[data-pawn-photos="1"] .kh-anh__btn,body[data-pawn-photos="1"] .photo-remove{font-size:13px!important;flex:1 1 0!important;min-width:0!important;padding:2px 0!important;min-height:26px!important;line-height:1!important;display:flex!important;align-items:center!important;justify-content:center!important;text-transform:none!important;letter-spacing:0!important}
+body[data-pawn-photos="1"] .kh-anh__btn--cat{flex:1 1 0!important}

@@ -26,7 +26,7 @@ from khcd import gcd_layout as G, ma_vach as MV
 KHBL_MA_VACH = r'D:\PYTHON\KHBL\apps\pos\ma_vach.py'
 KHBL_GCD_LAYOUT = r'D:\PYTHON\KHBL\apps\pos\gcd_layout.py'
 MA_THAT = 'KH22609000123'          # mã phiếu KH2 hiện hành: KH2 + yymm + 6 số
-SO_THAT = '22609000123'            # phần chữ số của nó — 11 số
+SO_THAT = 'KH22609000123'          # chuỗi mã vạch mang = TRỌN mã phiếu — 13 ký tự (GĐ chốt 17/09/2026)
 
 
 # ── 1. VÂN TAY THUẬT TOÁN: BẢN SAO KHÔNG ĐƯỢC TRÔI KHỎI KHBL ─────────────────────────────────
@@ -65,7 +65,7 @@ def test_van_tay_bat_duoc_sua_doi(tmp_path):
 # ── 2. BẢNG MÃ CODE 39 ───────────────────────────────────────────────────────────────────────
 def test_bang_ma_dung_hinh_dang():
     """Mỗi ký tự Code 39 = 9 phần tử, đúng 3 phần tử RỘNG. Sai là mã không hợp lệ."""
-    assert set(MV.CODE39) == set('0123456789-*')
+    assert set(MV.CODE39) == set('0123456789-*ABCDEFGHIJKLMNOPQRSTUVWXYZ .$/+%')   # đủ Code 39 chuẩn (17/09/2026: có chữ)
     for ky_tu, vach in MV.CODE39.items():
         assert len(vach) == 9, ky_tu
         assert vach.count('w') == 3, ky_tu
@@ -116,10 +116,10 @@ def _giai_ma(uri):
 
 @pytest.mark.parametrize('ma,so', [
     (MA_THAT, SO_THAT),
-    ('KH22609999999', '22609999999'),
-    ('KH22601000001', '22601000001'),
-    ('CD26090100012', '26090100012'),                   # dạng mã ví dụ trong ghi chú của KHBL
-    ('CD260915TEST000001', '260915000001'),             # mã lịch sử có chữ xen giữa
+    ('KH22609999999', 'KH22609999999'),
+    ('KH22601000001', 'KH22601000001'),
+    ('CD26090100012', 'CD26090100012'),                 # dạng mã ví dụ trong ghi chú của KHBL
+    ('CD260915TEST000001', 'CD260915TEST000001'),       # mã lịch sử có chữ xen giữa — giữ trọn
     ('0', '0'),
 ])
 def test_giai_ma_nguoc_ra_dung_so(ma, so):
@@ -141,16 +141,18 @@ def test_anh_dung_hinh_hoc():
 
 
 def test_so_run_dung_cong_thuc():
-    """13 ký tự (11 số + 2 start/stop) × 9 phần tử + 12 khoảng ngăn = 129 vạch giữa quiet-zone."""
-    assert len(_chuoi_vach(_mo_anh(MV.anh_ma_vach(MA_THAT)))) - 2 == 13 * 9 + 12
+    """15 ký tự (13 của mã + 2 start/stop) × 9 phần tử + 14 khoảng ngăn = 149 vạch giữa quiet-zone."""
+    assert len(_chuoi_vach(_mo_anh(MV.anh_ma_vach(MA_THAT)))) - 2 == 15 * 9 + 14
 
 
 # ── 4. HỢP ĐỒNG "SỐ ĐEM ĐI MÃ HOÁ" ───────────────────────────────────────────────────────────
 def test_so_ma_vach_bo_chu_giu_thu_tu():
     assert MV.so_ma_vach(MA_THAT) == SO_THAT
-    assert MV.so_ma_vach('CD-2609/01 00012') == '260901' + '00012'
+    assert MV.so_ma_vach('CD-2609/01 00012') == 'CD260901' + '00012'
+    assert MV.so_ma_vach('kh22609000123') == MA_THAT, 'chữ thường phải lên IN HOA (Code 39 chỉ có A–Z)'
+    assert MV.so_ma_vach(MV.so_ma_vach(MA_THAT)) == MA_THAT, 'chạy lại trên kết quả phải ra y nguyên'
     assert MV.so_ma_vach('') == '' and MV.so_ma_vach(None) == ''
-    assert MV.so_ma_vach('ABC') == ''
+    assert MV.so_ma_vach('-/ .') == ''
 
 
 def test_khong_rut_gon_9_so():
@@ -174,7 +176,7 @@ def test_ma_khong_co_chu_so_thi_khong_ve_vach():
     """
     assert MV.anh_ma_vach('') == ''
     assert MV.anh_ma_vach(None) == ''
-    assert MV.anh_ma_vach('ABC') == ''
+    assert MV.anh_ma_vach('-/ .') == ''          # không còn ký tự chữ/số nào → không vẽ
     assert MV.png_code39('') .startswith('data:image/png;base64,')        # bản gốc vẫn giữ nguyên
 
 
@@ -196,17 +198,17 @@ def test_vach_hep_khop_anh_that():
     hep_px = min(n for _, n in _chuoi_vach(im)[1:-1])
     mo_dun_theo_anh = im.size[0] / hep_px
     mo_dun_theo_cong_thuc = MV.MO_DUN_QUIET * 2 + (len(SO_THAT) + 2) * MV.MO_DUN_MOI_KY_TU - 1
-    assert mo_dun_theo_anh == mo_dun_theo_cong_thuc == 227
+    assert mo_dun_theo_anh == mo_dun_theo_cong_thuc == 259   # 15 ký tự × 16 − 1 + 2×10 quiet
 
 
 def test_vach_hep_mm_theo_kho_khoi():
-    """Khối rộng 18,8% trên tờ 210 mm ⇒ vạch hẹp ≈ 0,174 mm = 7 mil.
+    """Khối rộng 18,8% trên tờ 210 mm ⇒ vạch hẹp ≈ 0,152 mm = 6 mil (mã 13 ký tự có chữ).
 
     Đây là trạng thái ĐÚNG NHƯ THIẾT KẾ: nằm GIỮA hai ngưỡng ⇒ in bình thường, kèm dòng xám nhắc
     quét thử. Bề rộng đã là trần cứng của tờ giấy in sẵn, không nới thêm được.
     """
     mm = MV.vach_hep_mm(MA_THAT, 18.8, 210)
-    assert round(mm, 4) == 0.1739
+    assert round(mm, 4) == 0.1524
     assert MV.VACH_HEP_TOI_THIEU_MM <= mm < MV.VACH_HEP_CAN_THU_MM
     # Mã dài thêm 4 chữ số là vạch mỏng đi rõ rệt — lý do phải đo theo TỪNG phiếu, không đo một lần.
     assert MV.vach_hep_mm('KH2260900012345', 18.8, 210) < mm
@@ -430,6 +432,9 @@ def phieu(app):
     from khcd import db
     with app.app_context():
         db.execute('CREATE TABLE IF NOT EXISTS ' + G._bang_cau_hinh() + ' ' + PMV_STATE_COT)
+        # Bố cục do bài kiểm trước _dat_bo_cuc() nằm lại trong CSDL nháp → mỗi phiếu mới bắt đầu từ MẶC ĐỊNH.
+        db.execute('DELETE FROM ' + G._bang_cau_hinh() + ' WHERE `key`=%s', (G.KEY,))
+        G.quen_nho()
         lid = db.execute(
             "INSERT INTO cd_loans (legacy_pawn_id,sku,phone,cust_id,loan_state,last_operation_id,receipt_lost,"
             "opened_at,interest_from,due_at,original_principal,principal_balance,monthly_rate,safe,"

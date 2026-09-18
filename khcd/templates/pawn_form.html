@@ -5,9 +5,13 @@
 <link rel="stylesheet" href="{{ url_for('static',filename='desk-sessions.css') }}?v=20260916-kind-filter">
 <link rel="stylesheet" href="{{ url_for('static',filename='customer-popup.css') }}">
 <script src="{{ url_for('static',filename='customer-popup.js') }}?v=desk4" defer></script>
-<script src="{{ url_for('static',filename='pawn-entry.js') }}?v=20260916-khbl-prices" defer></script>
+<script src="{{ url_for('static',filename='pawn-entry.js') }}?v=20260918-desk2" defer></script>
 <script src="{{ url_for('static',filename='desk-sessions.js') }}?v=20260916-kind-filter" defer></script>
 <link rel="stylesheet" href="{{ url_for('static',filename='desk-checkout.css') }}?v=20260916-khbl-prices">
+{# IN THẲNG TẠI QUẦY (cách Bán lẻ): tờ GCD nhét vào #khcd-in rồi window.print() từ chính cửa sổ này. Thứ tự CSS bắt buộc: gcd-print.css (fail-closed) TRƯỚC mau-in.css (bố cục + @page, mở tờ giấy). #}
+<link rel="stylesheet" href="{{ url_for('static',filename='gcd-print.css') }}?v=1">
+<link rel="stylesheet" href="{{ url_for('gcd.mau_in_css') }}">
+<link rel="stylesheet" href="{{ url_for('static',filename='desk-print.css') }}?v=20260917a">
 {% endblock %}
 {% block content %}
 <div id="desk-error" class="flash error" role="alert" {% if not error %}hidden{% endif %}>{{ error or '' }}</div>
@@ -15,7 +19,7 @@
 <aside class="desk-left">
  {% set action_icons={1:'cammoi',2:'camthem',3:'trabot',4:'gianhan',5:'chuocdo',6:'thanhly',7:'matgiay'} %}
  {% set action_hints={1:'Lập biên nhận',2:'Tăng tiền cầm',3:'Giảm tiền gốc',4:'Tiếp kỳ cầm',5:'Tất toán phiếu',6:'Xử lý tài sản',7:'Mất biên nhận'} %}
- <details class="desk-actions panel" open>
+ <details class="desk-actions panel">{# đóng khi CẦM MỚI, JS mở khi đã xác nhận đúng biên nhận #}
  <summary><span class="desk-actions-heading">GIAO DỊCH</span><span class="desk-actions-chevron" aria-hidden="true">⌄</span></summary>
  <nav aria-label="Nghiệp vụ cầm đồ">
  {% for action in actions if action.id!=1 %}<button type="button" class="desk-action {{ 'is-active' if action.id==1 }}" aria-label="{{ action.name }}" data-pawn-action="{{ action.id }}" data-action-name="{{ action.name }}" {% if action.id!=1 %}disabled title="Quét hoặc nhập mã biên nhận trước"{% endif %}>
@@ -35,16 +39,16 @@
  <section class="desk-section desk-customer"><header><span>02</span><h2>Thông tin khách hàng</h2></header>
  <div class="customer-columns"><div><div class="customer-lookup"><span>⌕</span><input id="customer-query" value="{{ customer_q }}" placeholder="SĐT / CCCD / tên / quét QR CCCD…" autocomplete="off" role="combobox" aria-expanded="false" aria-controls="customer-results" aria-label="Tìm khách hàng"><div class="customer-input-actions"><button type="button" id="create-customer" data-customer-popup title="Thêm khách hàng" aria-label="Thêm khách hàng" {{ 'disabled data-readonly=1' if readonly }}>+</button><button type="button" id="clear-customer" title="Bỏ khách đang chọn" aria-label="Bỏ khách đang chọn" hidden>×</button><button type="button" id="edit-customer" data-customer-popup aria-label="Sửa khách hàng" disabled hidden>SỬA</button></div><div id="customer-results" class="customer-results" role="listbox" hidden></div></div>
  <p id="customer-search-status" class="desk-hint" role="status">Tìm và chọn khách KK.</p><div id="customer-facts" class="customer-selected" hidden><b id="customer-name"></b><span id="customer-phone"></span><span id="customer-cccd"></span><small id="customer-addr"></small></div></div>
- {% for group,id in [('front','pawn-front'),('back','pawn-back')] %}<iframe id="{{ id }}" class="pawn-photo-frame customer-photo-frame" src="{{ url_for('customer_popup.photos',group=group) }}" title="{{ 'CCCD mặt trước' if group=='front' else 'CCCD mặt sau' }}" allow="camera 'self'"></iframe>{% endfor %}</div></section>
+ {% for group,id in [('front','pawn-front'),('back','pawn-back')] %}<iframe id="{{ id }}" class="pawn-photo-frame customer-photo-frame" data-src="{{ url_for('customer_popup.photos',group=group) }}" title="{{ 'CCCD mặt trước' if group=='front' else 'CCCD mặt sau' }}" allow="camera 'self'"></iframe>{% endfor %}</div></section>
  <section class="desk-section desk-assets"><header><span>03</span><h2>Thông tin món hàng</h2><small id="item-count">0 MÓN</small></header>
  <div class="desk-asset-columns"><div class="desk-items"><div class="item-editor"><label>Loại vàng<select id="item-gold"><option value="">Chọn vàng</option>{% for g in golds %}<option value="{{ g.id }}" data-unit="{{ g.unit }}" data-price="{{ g.price or 0 }}">{{ g.name }}</option>{% endfor %}</select></label><label>Mô tả món hàng<input id="item-desc" maxlength="255" placeholder="3 nhẫn, 1 miếng SJC…"></label><label>Tổng TL<input id="item-gross" type="number" min="0.0001" max="99999" step="0.0001" placeholder="0.00"></label><label>TL vàng<input id="item-net" readonly placeholder="0.00"></label><label>TL hột<input id="item-stone" type="number" min="0" step="0.0001" value="0"></label><label hidden>Giá / <span id="item-unit">chỉ</span><input id="item-price" inputmode="numeric" placeholder="0"></label><label hidden>Tạm tính<input id="item-subtotal" readonly placeholder="0"></label><button type="button" id="item-add" class="btn btn-primary">＋ Thêm</button></div>
  <p id="item-error" class="desk-hint" role="status"></p>
  <div class="item-table-wrap"><table class="item-table"><thead><tr><th>Vàng / mô tả</th><th>Tổng TL</th><th>TL vàng</th><th>TL hột</th><th hidden>Đơn giá</th><th hidden>Tạm tính</th><th></th></tr></thead><tbody id="item-rows"><tr><td colspan="7" class="empty-items">Thêm món vàng đầu tiên vào biên nhận</td></tr></tbody></table></div>
  <div class="desk-content"><label>Nội dung <small class="valuation-rule">Định giá = 70% giá hiện tại</small><textarea id="item-summary" rows="2" readonly placeholder="Nội dung được tổng hợp từ các món vàng…"></textarea></label><div><small>CẦM TỐI ĐA</small><strong id="valuation-total">0 đ</strong></div></div>
- </div><aside class="desk-imgs"><iframe id="pawn-photos" class="pawn-photo-frame" src="{{ url_for('customer_popup.photos',group='products') }}" title="Ảnh sản phẩm vàng" allow="camera 'self'"></iframe></aside></div>
+ </div><aside class="desk-imgs"><iframe id="pawn-photos" class="pawn-photo-frame" data-src="{{ url_for('customer_popup.photos',group='products') }}" title="Ảnh sản phẩm vàng" allow="camera 'self'"></iframe></aside></div>
  </section>
 
-<footer class="desk-print-footer"><button type="button" class="btn" id="print-pawn" disabled title="Mở biên nhận đã lưu để in">▤ IN PHIẾU</button></footer>
+<footer class="desk-print-footer"><button type="button" class="btn" id="print-pawn" disabled title="In thẳng giấy cầm đồ tới máy in đã cấu hình">▤ IN PHIẾU</button></footer>
 </div>
 <aside class="desk-right desk-checkout"><header class="checkout-heading"><span>BIÊN NHẬN</span><small id="checkout-receipt-code">PHIẾU MỚI</small></header>
 <section class="desk-section checkout-session" id="checkout-session" data-state="cammoi"><header><span>01</span><h2>Phiên giao dịch hiện tại</h2></header><p id="checkout-last-session" class="desk-hint" hidden></p> <div class="principal-row" id="principal-panel"><label>Số tiền cầm <em>*</em><div><input name="value" id="principal" inputmode="numeric" value="{{ form.get('value','') }}" placeholder="0" required><b>VND</b></div></label><p class="principal-words"><span id="principal-readable">Không đồng</span></p></div>
@@ -56,7 +60,7 @@
  <div class="payment-options"><label><input type="radio" name="payment_method" id="pay-cash" value="cash" checked><span>Tiền mặt</span></label><label><input type="radio" name="payment_method" id="pay-bank" value="bank"><span>Chuyển khoản</span></label></div>
  <div class="desk-grid three"><label>Tiền mặt<input id="cash-input" name="cash_amount" inputmode="numeric" value="0"></label><label>Tiền chuyển khoản<input name="bank_amount" id="bank-amount" inputmode="numeric" value="0"></label><label>Scan QR chuyển khoản khách<div class="receipt-lookup"><input id="bank-qr-input" maxlength="8192" autocomplete="off" placeholder="Quét QR rồi Enter"><button type="button" id="scan-bank" class="btn" aria-label="Quét QR chuyển khoản">▦</button></div></label></div>
  <p id="payment-window" class="desk-hint"></p>
- <div id="bank-fields"><div class="bank-inputs"><input name="bank_name" maxlength="120" placeholder="Ngân hàng" aria-label="Ngân hàng"><input name="bank_account" maxlength="120" placeholder="Số tài khoản" aria-label="Số tài khoản"><input name="bank_holder" maxlength="120" placeholder="Tên tài khoản" aria-label="Tên tài khoản"></div><div class="session-qr-corner"><iframe id="pawn-session-qr" class="pawn-photo-frame" src="{{ url_for('customer_popup.photos',group='qr') }}" title="QR chuyển khoản phiên giao dịch" allow="camera 'self'"></iframe></div></div>
+ <div id="bank-fields"><div class="bank-inputs"><input name="bank_name" maxlength="120" placeholder="Ngân hàng" aria-label="Ngân hàng"><input name="bank_account" maxlength="120" placeholder="Số tài khoản" aria-label="Số tài khoản"><input name="bank_holder" maxlength="120" placeholder="Tên tài khoản" aria-label="Tên tài khoản"></div><div class="session-qr-corner"><iframe id="pawn-session-qr" class="pawn-photo-frame" data-src="{{ url_for('customer_popup.photos',group='qr') }}" title="QR chuyển khoản phiên giao dịch" allow="camera 'self'"></iframe></div></div>
  <div class="payment-reference-row"><input name="bank_reference" value="" readonly maxlength="120" placeholder="Nội dung tạo theo phiên giao dịch" aria-label="Nội dung chuyển khoản"><button type="button" class="btn" id="make-outgoing-qr" disabled title="Tạo QR chuyển khoản khách">▦ QR</button></div></section>
 <footer class="checkout-footer"><p id="desk-save-status" role="status">Kiểm tra thông tin trước khi xác nhận.</p><p id="cancel-window" role="status"></p><div><button type="button" class="btn btn-danger" id="clear-draft">XÓA</button><button class="btn btn-primary" id="save-pawn" {{ 'disabled' if readonly }}>✓ Xác nhận</button></div></footer></aside>
 </form>
@@ -76,4 +80,5 @@
 <dialog id="lost-papers-dialog" aria-labelledby="lost-papers-title"><div class="dialog-head"><h2 id="lost-papers-title">Giấy báo mất</h2><button type="button" class="icon-btn" data-close aria-label="Đóng">×</button></div><div id="lost-papers-tabs" role="tablist" aria-label="Các phiên báo mất"></div><section id="lost-papers-content" role="tabpanel"><p id="lost-papers-date"></p><img id="lost-papers-image" alt="Giấy cam kết báo mất" hidden><p id="lost-papers-image-status" role="status"></p><h3>Nội dung / Ghi chú đã lưu</h3><p id="lost-papers-note"></p></section></dialog>
 <dialog id="unlock-lost-dialog"><div class="dialog-head"><h2>Mở khóa phiếu báo mất</h2><button type="button" class="icon-btn" data-close aria-label="Đóng">×</button></div><p id="unlock-lost-receipt"></p><label>PassCode tài khoản đang đăng nhập<input id="unlock-lost-code" type="password" autocomplete="off" maxlength="128"></label><label>Lý do mở khóa<input id="unlock-lost-reason" maxlength="255"></label><p id="unlock-lost-error" role="alert"></p><button type="button" class="btn btn-primary" id="unlock-lost-confirm">MỞ KHÓA</button></dialog>
 {% include '_desk_sessions.html' %}
+<div id="khcd-in" class="khcd-in" aria-hidden="true"></div>
 {% endblock %}

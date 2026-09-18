@@ -131,7 +131,7 @@ def prepare(data, principal, golds):
     if len(tables)!=2 or any(t['ENGINE']!='InnoDB' for t in tables):
         raise BusinessError('Chưa chuẩn bị dữ liệu bàn lập phiếu. Chạy scripts/migrate_desk.py trước khi lưu.')
     rows=items(data,golds)
-    employees=master.call('employees')['rows']
+    employees=master.employees()
     employee=next((e for e in employees if str(e['EmpID'])==data.get('employee_id')),None)
     if not employee:raise BusinessError('Chọn nhân viên đang hoạt động trong danh mục KK.')
     return dict(items=rows,employee_id=employee['EmpID'],employee_name=employee['EmpName'],

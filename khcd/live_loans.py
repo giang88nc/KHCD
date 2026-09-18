@@ -6,6 +6,7 @@ from decimal import Decimal
 from flask import Blueprint, current_app, request, session, url_for, render_template, abort, Response, send_file
 from . import db, pawn_desk as desk, customer_master as master, loan_conversion as C
 from .domain import BusinessError, now, today, parse_date, decimal, money, date_range
+from .payment_split import split, reference
 
 bp=Blueprint('live',__name__,url_prefix='/camdo')
 OPS={0:'Hủy phiên',1:'Cầm mới',2:'Cầm thêm',3:'Trả bớt',4:'Gia hạn',5:'Chuộc đồ',6:'Thanh lý',7:'Báo mất',8:'Mở khóa báo mất'}
@@ -23,6 +24,8 @@ def require_live():
     db.require_write()
     if not db.one("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='cd_loan_logs' AND COLUMN_NAME='request_key'"):
         raise BusinessError('Cần nâng cấp cấu trúc SQL mới trước khi ghi.')
+    if not db.one("SELECT COLUMN_NAME FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='cd_payments' AND COLUMN_NAME='payment_ref'"):
+        raise BusinessError('Cần nâng cấp payment split trước khi tạo phiên mới.')
 
 def loan(lid,lock=False):
     p=db.one('SELECT * FROM cd_loans WHERE id=%s'+(' FOR UPDATE' if lock else ''),(lid,))
@@ -48,7 +51,12 @@ def cancellation(p):
     if 'before' not in terms or 'after' not in terms:return out
     if C.digest(C.normalized(snapshot(p)))!=C.digest(C.normalized(terms['after'])):return dict(out,reason='Phiếu đã thay đổi sau phiên; cần đối soát.')
     pays=db.all('SELECT * FROM cd_payments WHERE log_id=%s',(l['id'],))
-    for pay in pays:out['cash_return' if pay['channel']=='CASH' else 'bank_return']=str(pay['amount'])
+    if any(r['reconciliation_state'] in ('MATCHED','PARTIAL','RECONCILED') for r in pays):
+        return dict(out,reason='Phiên đã có chứng từ ngân hàng; không được xóa dòng tiền đã đối soát.')
+    for pay in pays:
+        cash,bank=split(pay)
+        out['cash_return']=str(Decimal(out['cash_return'])+cash)
+        out['bank_return']=str(Decimal(out['bank_return'])+bank)
     return dict(out,allowed=True,remaining_seconds=int(300-age),reason='Hoàn lại đúng dòng tiền phiên trước khi hủy.',log_id=l['id'],operation=OPS[l['operation_id']])
 
 def photos_save(raw):
@@ -72,8 +80,13 @@ def post_log(p,operation,before,change,interest,extra,discount,days,key,note,emp
 
 def post_payments(log_id,net,bank,info):
     if not net:return
-    for channel,amount in [('CASH',abs(net)-bank),('BANK',bank)]:
-        if amount:insert('cd_payments',dict(log_id=log_id,channel=channel,direction='IN' if net>0 else 'OUT',amount=amount,bank_snapshot=C.packed(info if channel=='BANK' else {}),reconciliation_state='RECORDED'))
+    log=db.one('SELECT loan_id,happened_at FROM cd_loan_logs WHERE id=%s',(log_id,))
+    # A prepared QR is not bank evidence. New sessions stay cash until reconciled.
+    details=dict(info or {})
+    if bank:details.update(requested_bank_amount=str(bank),transfer_status='PREPARED')
+    insert('cd_payments',dict(log_id=log_id,channel=None,direction='IN' if net>0 else 'OUT',
+      amount=abs(net),cashPay=abs(net),cardPay=0,payment_ref=reference(log['happened_at'],log['loan_id'],log_id),
+      bank_snapshot=C.packed(details),reconciliation_state='RECORDED'))
 
 def next_receipt_code(stamp):
     """Caller holds the year allocation lock until the INSERT transaction commits."""
@@ -108,7 +121,8 @@ def create(data,files):
     if not c or str(c.get('Active'))!='1' or not c.get('phone') or len(c['phone'])>11:raise BusinessError('Chọn khách KK đang hoạt động, có SĐT hợp lệ.')
     from .services import gold_options
     rows=desk.items(data,gold_options());pay=desk.payment(data,principal)
-    employee=next((e for e in master.call('employees')['rows'] if str(e['EmpID'])==data.get('employee_id')),None)
+    employee=next((e for e in master.employees() if str(e['EmpID'])==data.get('employee_id')),None)
+    if employee is None:employee=next((e for e in master.employees(refresh=True) if str(e['EmpID'])==data.get('employee_id')),None)   # NV mới thêm bên KK trong 10 phút
     if not employee:raise BusinessError('Chọn nhân viên KK đang hoạt động.')
     note=str(data.get('note','')).strip()
     if len(note)>255:raise BusinessError('Ghi chú tối đa 255 ký tự.')
@@ -320,9 +334,11 @@ def checkout_summary(p):
     payment={'cash':'0','bank_amount':'0'};net=Decimal(0);qr_url=None
     if last:
         for row in db.all('SELECT * FROM cd_payments WHERE log_id=%s',(last['id'],)):
-            payment['cash' if row['channel']=='CASH' else 'bank_amount']=str(row['amount'])
+            cash,bank_amount=split(row)
+            payment['cash']=str(Decimal(payment['cash'])+cash)
+            payment['bank_amount']=str(Decimal(payment['bank_amount'])+bank_amount)
             net+=row['amount']*(1 if row['direction']=='IN' else -1)
-            if row['channel']=='BANK':
+            if row.get('bank_snapshot'):
                 bank=unpack(row['bank_snapshot'])
                 if bank.get('qr_image'):qr_url='/camdo/phien/'+str(last['id'])+'/qr'
                 payment.update(bank_name=bank.get('bank_name') or bank.get('bank_bin',''),bank_account=bank.get('bank_account') or bank.get('bank_number',''),bank_holder=bank.get('bank_holder') or bank.get('bank_user',''),bank_reference=bank.get('bank_reference',''))
@@ -344,14 +360,15 @@ def receipt(raw):
         except BusinessError as exc:err=str(exc)+' · đang hiển thị hồ sơ lưu trên phiếu.'
     else:err='Chưa có CustID đã xác định; giữ SĐT nguồn để đối soát.'
     rows=[dict(gold=i['gold_code'],description=i['description'],unit=i['unit'] or 'chỉ',gross=str(i['gross_weight']),stone=str(i['stone_weight']),net=str(i['net_weight']),price=str(i['unit_price'] or 0),subtotal=str(i['valuation'] or 0)) for i in items]
-    terms=unpack(p['terms_json']);pay=terms.get('payment',{})
+    terms=unpack(p['terms_json']);pay={}
     if not pay:
         first=db.one('SELECT id FROM cd_loan_logs WHERE loan_id=%s AND operation_id=1 ORDER BY id LIMIT 1',(p['id'],))
         pays=db.all('SELECT * FROM cd_payments WHERE log_id=%s',(first['id'],)) if first else []
         pay={'cash':'0','bank_amount':'0'}
         for r in pays:
-            pay['cash' if r['channel']=='CASH' else 'bank_amount']=str(r['amount'])
-            if r['channel']=='BANK':pay.update(unpack(r['bank_snapshot']))
+            cash,bank_amount=split(r)
+            pay['cash']=str(Decimal(pay['cash'])+cash)
+            pay['bank_amount']=str(Decimal(pay['bank_amount'])+bank_amount)
     from .loan_images import inventory
     photos={i['slot']:url_for('loans.photo',loan_id=p['id'],slot=i['slot']) for i in inventory(p) if i['available'] and i['slot'] in desk.PHOTO_NAMES and i['slot']!='anh_qr'}
     if p['cust_id']:
@@ -369,7 +386,7 @@ def receipt(raw):
     session_count=db.one('SELECT COUNT(*) total FROM cd_loan_logs WHERE loan_id=%s AND operation_id<>8',(p['id'],))['total']
     return dict(session_count=session_count,loan_state=p['loan_state'],lost_papers=lost_papers,count_print=p.get('count_print',0),print_count_url=url_for('live.print_count',lid=p['id']),id=p['id'],sku=p['sku'],status=p['last_operation_id'],status_name=C.LABEL[p['loan_state']],active=p['loan_state']=='ACTIVE',valuation_known=bool(items and all(i['valuation'] is not None for i in items)),items=rows,
       value=str(p['principal_balance']),monthly_rate=str(p['monthly_rate']),safe=p['safe'] or '',date1=str(parse_date(p['opened_at'])),due=str(parse_date(p['due_at'])),employee_id=p['employee_id'] or '',employee_name=p['employee_name'] or '',note=p['note'] or '',payment=pay,content=desk.summary(rows),
-      customer=dict(id=p['cust_id'],name=customer.get('name',''),phone=customer.get('phone') or p['phone'],cccd=customer.get('cccd',''),addr=customer.get('addr','')),customer_error=err,photos=photos,detail_url=url_for('live.print_receipt',lid=p['id']),fingerprint=fingerprint(p),cancellation=cancellation(p),
+      customer=dict(id=p['cust_id'],name=customer.get('name',''),phone=customer.get('phone') or p['phone'],cccd=customer.get('cccd',''),addr=customer.get('addr','')),customer_error=err,photos=photos,detail_url=url_for('live.print_receipt',lid=p['id']),giay_url=url_for('gcd.giay',lid=p['id']),may_url=url_for('gcd.in_may_chu',lid=p['id']),fingerprint=fingerprint(p),cancellation=cancellation(p),
       checkout=checkout,preview_url=url_for('live.preview',lid=p['id']),commit_url=url_for('live.commit',lid=p['id']),receipt_lost=bool(p['receipt_lost']),lost_locked=lost_locked(p),unlock_url=url_for('live.unlock_lost',lid=p['id']))
 
 # Each log is joined to pre-aggregated payments: never multiply interest by channels.
@@ -379,8 +396,8 @@ LOG_SQL="""SELECT l.*,p.sku,p.phone,p.cust_id pmv_cust_id,
  COALESCE(f.cash,0) cash,COALESCE(f.bank,0) bank,
  COALESCE(f.received,0) received,COALESCE(f.paid,0) paid
  FROM cd_loan_logs l JOIN cd_loans p ON p.id=l.loan_id
- LEFT JOIN (SELECT log_id,SUM(CASE WHEN channel='CASH' THEN IF(direction='IN',amount,-amount) ELSE 0 END) cash,
- SUM(CASE WHEN channel='BANK' THEN IF(direction='IN',amount,-amount) ELSE 0 END) bank,
+ LEFT JOIN (SELECT log_id,SUM(IF(direction='IN',1,-1)*COALESCE(cashPay,IF(channel='CASH',amount,0))) cash,
+ SUM(IF(direction='IN',1,-1)*COALESCE(cardPay,IF(channel='BANK',amount,0))) bank,
  SUM(IF(direction='IN',amount,0)) received,SUM(IF(direction='OUT',amount,0)) paid FROM cd_payments GROUP BY log_id) f ON f.log_id=l.id"""
 
 def sessions(args):
@@ -424,10 +441,10 @@ def sessions(args):
     return dict(rows=rows,groups=groups,totals=totals,total=total,page=page,pages=pages,d1=str(start),d2=str(end),q=q,warnings=[])
 
 def dashboard():
-    start,end,_=date_range(request.args);data=sessions({'d1':str(start),'d2':str(end)})
-    pending=db.one("SELECT COUNT(*) count,COALESCE(SUM(p.value),0) principal FROM pawn p LEFT JOIN cd_loans l ON l.legacy_pawn_id=p.id WHERE p.status IN(1,2,3,4,7) AND l.id IS NULL")
-    metrics=db.one("SELECT COUNT(*) count,COALESCE(SUM(principal_balance),0) principal,SUM(due_at<%s) overdue,SUM(due_at>=%s AND due_at<%s) due FROM cd_loans WHERE loan_state='ACTIVE'",(today(),today(),today()+timedelta(days=4)))
-    return render_template('live_dashboard.html',title='Tổng quan',metrics=metrics,data=data,start=start,end=end,pending=pending)
+    """Tổng quan trên sổ SQL mới — số liệu, tuổi nợ, tài sản, cảnh báo: xem khcd/overview.py."""
+    from . import overview
+    start,end,_=date_range(request.args)
+    return render_template('live_dashboard.html',title='Tổng quan',ov=overview.stats(start,end),start=start,end=end)
 
 def report():
     start,end,_=date_range(request.args);args=dict(request.args,d1=str(start),d2=str(end));data=sessions(args)
@@ -490,7 +507,7 @@ def assets_hash(lid):
 
 @bp.get('/phien/<int:log_id>/qr')
 def session_qr(log_id):
-    row=db.one("SELECT bank_snapshot FROM cd_payments WHERE log_id=%s AND channel='BANK'",(log_id,))
+    row=db.one("SELECT bank_snapshot FROM cd_payments WHERE log_id=%s AND (channel='BANK' OR channel IS NULL)",(log_id,))
     if not row:abort(404)
     info=unpack(row['bank_snapshot']);encoded=info.get('qr_image','')
     if not isinstance(encoded,str) or not encoded or len(encoded)>21*1024*1024:abort(404)
@@ -524,7 +541,8 @@ def payment_edit_state(p,last=None):
     rows=db.all('SELECT * FROM cd_payments WHERE log_id=%s ORDER BY id',(last['id'],))
     net=sum((r['amount']*(1 if r['direction']=='IN' else -1) for r in rows),Decimal(0))
     age=(now()-last['happened_at']).total_seconds()
-    allowed=bool(last.get('request_key') and last['operation_id'] in (1,2) and net<0 and 0<=age<1800)
+    allowed=bool(last.get('request_key') and last['operation_id'] in (1,2) and net<0 and 0<=age<1800
+                 and not any(r['reconciliation_state'] in ('MATCHED','PARTIAL','RECONCILED') for r in rows))
     return dict(allowed=allowed,remaining_seconds=max(0,int(1800-age)) if allowed else 0,
       version=C.digest(C.normalized(rows)),url='/camdo/bien-nhan/'+str(p['id'])+'/chi-chuyen-khoan',log_id=last['id'])
 
@@ -547,11 +565,11 @@ def outgoing_details(p,last,data):
     account=str(data.get('bank_account','')).strip();holder=str(data.get('bank_holder','')).strip()
     if not account or len(account)>34 or not account.isascii() or not account.isalnum():raise BusinessError('Số tài khoản không hợp lệ.')
     if not holder or len(holder)>120:raise BusinessError('Nhập và đối chiếu tên tài khoản khách.')
-    reference='THANH TOÁN TIỀN VÀNG KH'+str(last['id'])
-    payload=QR.payload(code,account,int(bank),QR.khong_dau(reference),holder)
+    transfer_ref=reference(last['happened_at'],p['id'],last['id'])
+    payload=QR.payload(code,account,int(bank),transfer_ref,holder)
     import io,segno
     output=io.BytesIO();segno.make(payload,micro=False,error='m').save(output,kind='png',scale=7,border=4)
-    info=dict(bank_name=QR.bank_ten(code),bank_code=code,bank_account=account,bank_holder=holder,bank_reference=reference,
+    info=dict(bank_name=QR.bank_ten(code),bank_code=code,bank_account=account,bank_holder=holder,bank_reference=transfer_ref,
       qr_image=base64.b64encode(output.getvalue()).decode('ascii'),qr_mime='image/png',qr_payload=payload,transfer_status='PREPARED')
     return total,bank,info,pays
 

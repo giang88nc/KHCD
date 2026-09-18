@@ -1,8 +1,10 @@
 """Read-only views of the new SQL and explicit live reconciliation."""
 import json
+from datetime import timedelta
+from decimal import Decimal
 from flask import Blueprint,render_template,request,abort,send_file,Response,url_for
 from . import db,loan_conversion as C,loan_images as images
-from .domain import BusinessError
+from .domain import BusinessError,today,parse_date
 from . import live_loans as live
 
 bp=Blueprint('loans',__name__,url_prefix='/camdo/bien-nhan')
@@ -17,45 +19,101 @@ def get(loan_id):
     if not loan:abort(404)
     return loan
 
+STATE_FILTERS=[('all','Tất cả'),('ACTIVE','Đang cầm'),('OVERDUE','Quá hạn'),('REDEEMED','Đã chuộc'),('LIQUIDATED','Đã thanh lý'),('CANCELLED','Đã hủy')]
+PAGE_SIZE=30
+
+def stamp(value):
+    """dd/mm/yyyy HH:MM cho datetime; chuỗi/None giữ nguyên dạng đọc được."""
+    return value.strftime('%d/%m/%Y %H:%M') if hasattr(value,'strftime') else (str(value)[:16] if value else '—')
+
+def overdue_days(loan):
+    if loan.get('loan_state')!='ACTIVE' or not loan.get('due_at'):return 0
+    return max(0,(today()-parse_date(loan['due_at'])).days)
+
+def decorate(r):
+    """Thông tin hiển thị dùng chung cho bảng danh sách và popup."""
+    snapshot=decoded(r.get('customer_snapshot'),{});snapshot=snapshot if isinstance(snapshot,dict) else {}
+    r['snapshot_name']=snapshot.get('name','') or '';r['snapshot_phone']=snapshot.get('phone','') or ''
+    r['customer_name']=r.get('customer_name') or r['snapshot_name']
+    r['state_label']=C.LABEL.get(r['loan_state'],r['loan_state'])
+    r['overdue_days']=overdue_days(r)
+    r['state_class']=('danger' if r['overdue_days'] else 'success') if r['loan_state']=='ACTIVE' else 'neutral' if r['loan_state'] in ('REDEEMED','LIQUIDATED') else 'warning'
+    r['last_op_label']=live.OPS.get(r.get('last_op'),'Chưa có giao dịch') if r.get('last_id') else 'Chưa có giao dịch'
+    r['last_at_label']=stamp(r.get('last_at') or r.get('opened_at'))
+    return r
+
+def search_ids(q):
+    """CustID KK khớp tên/SĐT — chỉ khi dịch vụ khách sẵn sàng; lỗi thì bỏ qua, không chặn tìm nội bộ."""
+    if not (q and live.enabled() and live.master.enabled()):return []
+    try:return [str(i) for i in live.master.call('search_ids',q=q).get('ids',[])][:1000]
+    except BusinessError:return []
+
 @bp.get('')
 def listing():
-    q=request.args.get('q','').strip()[:255];state=request.args.get('state','all');page=max(1,request.args.get('page',1,type=int) or 1)
-    rows=[];total=0;available=C.ready()
+    q=request.args.get('q','').strip()[:100];state=request.args.get('state','all');page=max(1,request.args.get('page',1,type=int) or 1)
+    if state not in dict(STATE_FILTERS):state='all'
+    d1=parse_date(request.args.get('d1') or today(),'Từ ngày');d2=parse_date(request.args.get('d2') or today(),'Đến ngày')
+    if d1>d2:d1,d2=d2,d1
+    if (d2-d1).days>366:raise BusinessError('Khoảng ngày tối đa 366 ngày.')
+    rows=[];total=0;summary=dict(n=0,principal=0,active=0,overdue=0);available=C.ready()
     if available:
-        where=' WHERE 1=1';params=[]
+        # Nhóm log theo phiếu: mốc giao dịch gần nhất (sắp xếp) + có giao dịch trong khoảng ngày (lọc).
+        source=(' FROM cd_loans l LEFT JOIN (SELECT loan_id,MAX(happened_at) last_at,MAX(id) last_id,COUNT(*) log_count,'
+                'SUM(happened_at>=%s AND happened_at<%s) in_range FROM cd_loan_logs GROUP BY loan_id) g ON g.loan_id=l.id'
+                ' LEFT JOIN cd_loan_logs lg ON lg.id=g.last_id WHERE 1=1')
+        params=[d1,d2+timedelta(days=1)]
         if q:
-            where+=' AND (sku LIKE %s OR phone LIKE %s OR cust_id LIKE %s OR JSON_UNQUOTE(JSON_EXTRACT(customer_snapshot,\'$.name\')) LIKE %s)';params+=['%'+q+'%']*4
-        if state in C.LABEL:where+=' AND loan_state=%s';params.append(state)
-        total=db.one('SELECT COUNT(*) n FROM cd_loans'+where,params)['n']
-        rows=db.all('SELECT l.*,(SELECT COUNT(*) FROM cd_loan_items i WHERE i.loan_id=l.id) item_count,(SELECT COUNT(*) FROM cd_loan_logs g WHERE g.loan_id=l.id) log_count FROM cd_loans l'+where+' ORDER BY id DESC LIMIT 20 OFFSET %s',params+[(page-1)*20])
-        for r in rows:
-            snapshot=decoded(r['customer_snapshot'],{});r['customer_name']=snapshot.get('name','') if isinstance(snapshot,dict) else ''
-            r['missing']=[]
-            if not r['cust_id']:r['missing'].append('Thiếu CustID')
-            if not r['item_count']:r['missing'].append('Thiếu món')
-            if not r['log_count']:r['missing'].append('Thiếu lịch sử')
-            if not r['employee_id']:r['missing'].append('Chưa nối nhân viên')
-            r['missing'] += [i['label']+': '+i['detail'] for i in images.inventory(r) if i['state']!='ok']
-    if available and live.enabled() and rows:
-        names={r['id']:r['customer_name'] for r in rows}
-        for r in rows:r['pmv_cust_id']=r['cust_id']
-        live.master.hydrate(rows)
-        for r in rows:r['customer_name']=r.get('customer_name') or names[r['id']]
-    return render_template('loans.html',title='Biên nhận · SQL mới',rows=rows,total=total,page=page,pages=max(1,(total+19)//20),q=q,state=state,labels=C.LABEL,available=available)
+            # Tìm theo mã/SĐT/tên bỏ qua khoảng ngày: người dùng đã chỉ đích danh phiếu.
+            ids=search_ids(q)
+            source+=(" AND (l.sku LIKE %s OR l.phone LIKE %s OR l.cust_id LIKE %s OR JSON_UNQUOTE(JSON_EXTRACT(l.customer_snapshot,'$.name')) LIKE %s"
+                     +(' OR l.cust_id IN ('+','.join(['%s']*len(ids))+')' if ids else '')+')')
+            params+=['%'+q+'%']*4+ids
+        else:
+            source+=' AND (g.in_range>0 OR (g.loan_id IS NULL AND l.opened_at>=%s AND l.opened_at<%s))';params+=[d1,d2+timedelta(days=1)]
+        if state=='OVERDUE':source+=" AND l.loan_state='ACTIVE' AND l.due_at<%s";params.append(today())
+        elif state!='all':source+=' AND l.loan_state=%s';params.append(state)
+        summary=db.one("SELECT COUNT(*) n,COALESCE(SUM(l.principal_balance),0) principal,COALESCE(SUM(l.loan_state='ACTIVE'),0) active,"
+                       "COALESCE(SUM(l.loan_state='ACTIVE' AND l.due_at<%s),0) overdue"+source,[today()]+params)
+        total=int(summary['n'])
+        rows=db.all('SELECT l.id,l.sku,l.phone,l.cust_id,l.loan_state,l.principal_balance,l.monthly_rate,l.opened_at,l.due_at,l.receipt_lost,'
+                    'l.employee_name,l.safe,l.customer_snapshot,l.legacy_pawn_id,g.last_at,g.last_id,COALESCE(g.log_count,0) log_count,'
+                    'lg.operation_id last_op,lg.principal_change last_change,lg.interest last_interest,'
+                    '(SELECT COUNT(*) FROM cd_loan_items i WHERE i.loan_id=l.id) item_count,'
+                    '(SELECT i.description FROM cd_loan_items i WHERE i.loan_id=l.id ORDER BY i.line_no LIMIT 1) first_item'
+                    +source+' ORDER BY COALESCE(g.last_at,l.opened_at) DESC,l.id DESC LIMIT %s OFFSET %s',params+[PAGE_SIZE,(page-1)*PAGE_SIZE])
+        for r in rows:decorate(r)
+        if live.enabled() and rows:
+            names={r['id']:r['customer_name'] for r in rows}
+            for r in rows:r['pmv_cust_id']=r['cust_id']
+            live.master.hydrate(rows)
+            for r in rows:r['customer_name']=r.get('customer_name') or names[r['id']]
+    filters=dict(q=q,state=state,d1=str(d1),d2=str(d2))
+    return render_template('loans.html',title='Biên nhận',rows=rows,total=total,page=page,pages=max(1,(total+PAGE_SIZE-1)//PAGE_SIZE),
+                           summary=summary,filters=filters,state_filters=STATE_FILTERS,available=available,is_today=(d1==d2==today()))
 
-@bp.get('/<int:loan_id>')
-def detail(loan_id):
+def context(loan_id):
+    """Dữ liệu chi tiết một biên nhận — dùng chung trang đối soát và popup XEM."""
     loan=get(loan_id)
     customer=decoded(loan['customer_snapshot'],{});customer=customer if isinstance(customer,dict) else {}
+    customer_live=False
     if live.enabled() and loan['cust_id']:
-        try:customer=live.master.get(loan['cust_id'])['customer']
+        try:customer=live.master.get(loan['cust_id'])['customer'];customer_live=True
         except BusinessError:pass
     items=db.all('SELECT * FROM cd_loan_items WHERE loan_id=%s ORDER BY line_no',(loan_id,))
     logs=db.all('SELECT l.*,s.name operation_name FROM cd_loan_logs l LEFT JOIN pawn_status s ON s.id=l.operation_id WHERE loan_id=%s ORDER BY l.id',(loan_id,))
     for log in logs:
         if log['operation_id']==7 and decoded(log['terms_json'],{}).get('lost_photo'):log['lost_photo_url']=url_for('live.lost_photo',log_id=log['id'])
+        log['operation_label']=log['operation_name'] or live.OPS.get(log['operation_id'],str(log['operation_id']))
+        log['when']=stamp(log['happened_at']);log['cash']=Decimal(0);log['bank']=Decimal(0)
+    by_id={l['id']:l for l in logs}
     payments=db.all('SELECT p.*,l.legacy_log_id FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.id,p.id',(loan_id,))
     for p in payments:
+        # Display the two components without mislabelling a NULL channel as BANK.
+        cash,bank=live.split(p)
+        p['payment_label']=('Tiền mặt' if bank==0 else 'Chuyển khoản' if cash==0 else 'Tiền mặt + CK')
+        p['cashPay'],p['cardPay']=cash,bank
+        sign=1 if p['direction']=='IN' else -1
+        if p['log_id'] in by_id:by_id[p['log_id']]['cash']+=sign*cash;by_id[p['log_id']]['bank']+=sign*bank
         p['bank']=decoded(p['bank_snapshot'],{})
         if isinstance(p['bank'],dict):
             if p['bank'].pop('qr_image',None):p['qr_url']=url_for('live.session_qr',log_id=p['log_id'])
@@ -64,7 +122,19 @@ def detail(loan_id):
     exceptions=C.stored_exceptions(loan)
     legacy=decoded(loan['legacy_json'],{}).get('pawn',{})
     legacy_descriptions=[legacy.get('mota'+str(i)) for i in (1,2) if legacy.get('mota'+str(i))]
-    return render_template('loan_detail.html',title=loan['sku']+' · Biên nhận',loan=loan,customer=customer,items=items,logs=logs,payments=payments,photos=images.inventory(loan),labels=C.LABEL,exceptions=exceptions,legacy_descriptions=legacy_descriptions)
+    decorate(loan)
+    return dict(loan=loan,customer=customer,customer_live=customer_live,items=items,logs=logs,payments=payments,photos=images.inventory(loan),
+                labels=C.LABEL,exceptions=exceptions,legacy_descriptions=legacy_descriptions)
+
+@bp.get('/<int:loan_id>/xem')
+def modal(loan_id):
+    """Popup XEM trên danh sách: mảnh HTML (không extend base), gồm hồ sơ + lịch sử giao dịch."""
+    return render_template('_loan_modal.html',**context(loan_id))
+
+@bp.get('/<int:loan_id>')
+def detail(loan_id):
+    ctx=context(loan_id)
+    return render_template('loan_detail.html',title=ctx['loan']['sku']+' · Biên nhận',**ctx)
 
 @bp.get('/<int:loan_id>/doi-soat')
 def reconcile(loan_id):

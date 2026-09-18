@@ -1,0 +1,11 @@
+/* desk-print.css — IN THẲNG giấy cầm đồ ngay tại trang quầy (/camdo/lap-phieu), cách của BÁN LẺ:
+   tờ .gcd-a5 (mảnh /bien-nhan/<id>/giay-manh) nằm trong #khcd-in, ẨN trên màn hình; lúc in thì ẨN toàn bộ
+   giao diện quầy và CHỈ hiện #khcd-in. Khổ trang + vị trí tờ do mau-in.css quyết (A4 đứng, tờ ở nửa trên).
+   Máy quầy chạy Edge --kiosk-printing → không hộp thoại, ra thẳng máy in mặc định của Windows máy đó. */
+.khcd-in{display:none}
+@media print{
+ body.ruby-app{margin:0!important;padding:0!important;background:#fff!important}
+ .khcd-top,.khcd-footer,.skip-link,.khcd-page>*:not(.khcd-in){display:none!important}
+ .khcd-shell,.khcd-main,.khcd-page{display:block!important;padding:0!important;margin:0!important;height:auto!important;overflow:visible!important;max-width:none!important}
+ .khcd-in:not(:empty){display:block!important}
+}

@@ -1,0 +1,39 @@
+/* overview.css — trang TỔNG QUAN cầm đồ (tiền tố .ov-). Khoảng trắng 3–6px theo compact.css. */
+.ov-head{align-items:flex-end}
+.ov-tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.ov-tools .range-form{margin:0}
+.ov-kpis{display:grid;grid-template-columns:1.25fr repeat(5,1fr);gap:6px;margin-bottom:6px}
+.ov-kpi{display:flex;flex-direction:column;gap:2px;padding:6px;border:1px solid var(--line);border-radius:8px;background:#fffefb;min-width:0}
+.ov-kpi span{font-size:9px;letter-spacing:.7px;text-transform:uppercase;color:var(--muted);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov-kpi b{font-size:17px;font-variant-numeric:tabular-nums;color:var(--ruby-deep);white-space:nowrap;line-height:1.2}
+.ov-kpi small{font-size:10px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ov-kpi.is-main{background:var(--ruby-deep);border-color:var(--ruby-deep)}
+.ov-kpi.is-main span,.ov-kpi.is-main small{color:#e9c9c9}.ov-kpi.is-main b{color:#fff;font-size:20px}
+.ov-kpi.is-bad b{color:var(--red)}.ov-kpi.is-warn b{color:#9a6d13}
+.ov-panel{padding:6px}
+.ov-panel h2{margin:0 0 4px;font-size:12px;letter-spacing:.7px;text-transform:uppercase;color:var(--ruby);display:flex;align-items:baseline;gap:6px}
+.ov-panel h2 small{font-size:10px;letter-spacing:0;text-transform:none;color:var(--muted);font-weight:400}
+.ov-alerts,.ov-notes{list-style:none;margin:0;padding:0;display:grid;gap:3px}
+.ov-alerts li{display:grid;grid-template-columns:minmax(220px,.9fr) 1.6fr;gap:6px;padding:4px 6px;border-radius:6px;border-left:3px solid #c9c0c2;background:#faf6f5;font-size:11px}
+.ov-alerts li b{color:var(--ruby-deep)}.ov-alerts li span{color:#5a474c}
+.ov-alerts li.is-bad{border-left-color:var(--red);background:#fdf0f1}.ov-alerts li.is-bad b{color:var(--red)}
+.ov-alerts li.is-warn{border-left-color:#d9a441;background:#fdf7ea}
+.ov-alerts li.is-info{border-left-color:#7c8fa8;background:#f3f5f8}
+.ov-notes li{font-size:11px;padding:3px 6px;border-left:3px solid var(--gold);background:#fdf9f0;border-radius:6px}
+.ov-grid3{display:grid;grid-template-columns:1fr 1.1fr 1.1fr;gap:6px;margin-bottom:6px}
+.ov-grid2{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.ov-table{width:100%;border-collapse:collapse;font-size:11px;min-width:0}
+.ov-table th{text-align:left;font-size:9px;letter-spacing:.6px;text-transform:uppercase;color:var(--muted);padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap}
+.ov-table td{padding:3px 6px;border-bottom:1px solid #f3e9e7;vertical-align:middle}
+.ov-table tr:last-child td{border-bottom:0}
+.ov-table tfoot td{font-weight:700;border-top:1px solid var(--line)}
+.ov-table .right{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ov-table small{display:block;font-size:10px;color:var(--muted)}
+.ov-table tr.is-bad td:first-child{color:var(--red);font-weight:600}
+.ov-table tr.is-warn td:first-child{color:#9a6d13;font-weight:600}
+.ov-table tr.is-ok td:first-child{color:#237447;font-weight:600}
+.ov-table tr.is-zero td{color:#b3a6a8}
+.ov-table .btn-small{height:24px;padding:0 8px;font-size:10px}
+.ov-foot{margin:4px 0 0;font-size:10px;color:var(--muted)}
+.ov-foot a{color:var(--ruby)}
+@media(max-width:1100px){.ov-kpis{grid-template-columns:repeat(3,1fr)}.ov-grid3{grid-template-columns:1fr}.ov-grid2{grid-template-columns:1fr}.ov-alerts li{grid-template-columns:1fr}}

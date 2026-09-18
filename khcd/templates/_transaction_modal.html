@@ -1,0 +1,37 @@
+<div class="lm-head">
+ <div>
+  <div class="lm-title"><span class="gd-op {{ log.op_class }} is-big">{{ log.operation }}</span><span class="lm-sku">{{ loan.sku }}</span><span class="badge {{ loan.state_class }}"><i></i>{{ loan.state_label }}</span>{% if reversed_by %}<span class="badge danger"><i></i>Đã hủy bởi phiên #{{ reversed_by.id }}</span>{% endif %}{% if log.reverses_log_id %}<span class="badge warning"><i></i>Đảo phiên #{{ log.reverses_log_id }}</span>{% endif %}</div>
+  <p class="lm-meta">{{ log.when }} · {{ 'Nguồn cũ #'~log.legacy_log_id if log.legacy_log_id else 'Phiên #'~log.id }} · {{ log.actor_legacy or 'Nguồn cũ' }}{% if log.employee_id %} · NV {{ log.employee_id }}{% endif %}{% if rule %} · quy tắc {{ rule }}{% endif %}</p>
+ </div>
+ <button type="button" class="lm-close" data-modal-close aria-label="Đóng">×</button>
+</div>
+<div class="lm-actions">
+ <a class="btn btn-primary" href="{{ url_for('loans.listing',q=loan.sku) }}#xem={{ loan.id }}">Xem biên nhận</a>
+ <a class="btn" href="{{ url_for('web.pawn_new',receipt=loan.sku) }}">Mở tại quầy</a>
+ <a class="btn" href="{{ url_for('live.print_receipt',lid=loan.id) }}" target="_blank" rel="noopener">In phiếu</a>
+ {% if log.lost_photo_url %}<a class="btn" href="{{ log.lost_photo_url }}" target="_blank" rel="noopener">Cam kết báo mất</a>{% endif %}
+</div>
+<div class="lm-kpis gd-kpis">
+ <div class="is-main {{ 'is-in' if log.net>0 else 'is-out' if log.net<0 }}"><span>{{ 'Tiệm thu' if log.net>0 else 'Tiệm chi' if log.net<0 else 'Ròng' }}</span><b>{{ log.net|vnd }} đ</b></div>
+ <div><span>Gốc trước → sau</span><b>{{ log.principal_before|vnd }} → {{ log.principal_after|vnd }}</b></div>
+ <div class="{{ 'is-plus' if log.principal_change>0 else 'is-minus' if log.principal_change<0 }}"><span>Biến động gốc</span><b>{{ '+' if log.principal_change>0 }}{{ log.principal_change|vnd }} đ</b></div>
+ <div><span>Lãi{% if log.days %} · {{ log.days }} ngày{% endif %}</span><b>{{ log.interest|vnd }} đ <small>{{ log.monthly_rate|rate }}%/th</small></b></div>
+ <div><span>Thu thêm / Giảm trừ</span><b>+{{ log.extra_amount|vnd }} / −{{ log.discount_amount|vnd }}</b></div>
+</div>
+<div class="lm-grid">
+ <section class="lm-card">
+  <h3>Dòng tiền <small>{{ payments|length }} dòng</small></h3>
+  {% if payments %}<table class="lm-table"><thead><tr><th>Hướng</th><th>Phương thức</th><th class="right">Tiền mặt</th><th class="right">Chuyển khoản</th><th>Đối soát</th></tr></thead><tbody>{% for p in payments %}<tr><td><b class="{{ 'is-plus' if p.direction=='IN' else 'is-minus' }}">{{ 'THU' if p.direction=='IN' else 'CHI' }}</b>{% if p.payment_ref %}<small>Mã CK {{ p.payment_ref }}</small>{% endif %}</td><td>{{ p.label }}{% if p.info %}<small>{% for k,v in p.info.items() %}{{ k }}: {{ v }}{% if not loop.last %} · {% endif %}{% endfor %}</small>{% endif %}</td><td class="right">{{ p.cash|vnd }}</td><td class="right">{{ p.bank|vnd }}</td><td>{{ p.reconciliation_state }}{% if p.qr_url %}<small><a href="{{ p.qr_url }}" target="_blank" rel="noopener">QR phiên</a></small>{% endif %}</td></tr>{% endfor %}</tbody></table>
+  {% else %}<p class="muted">Phiên không phát sinh dòng tiền.</p>{% endif %}
+  {% if log.note %}<p class="lm-note">Ghi chú: {{ log.note }}</p>{% endif %}
+ </section>
+ <section class="lm-card">
+  <h3>Biên nhận sau phiên <small>{{ 'thay đổi được ghi nhận' if changes else 'phiên nguồn cũ — không có bản trước/sau' }}</small></h3>
+  {% if changes %}<table class="lm-table"><thead><tr><th>Mục</th><th class="right">Trước</th><th class="right">Sau</th></tr></thead><tbody>{% for c in changes %}<tr class="{{ 'gd-changed' if c.changed }}"><td>{{ c.label }}</td><td class="right">{{ c.before }}</td><td class="right"><b>{{ c.after }}</b></td></tr>{% endfor %}</tbody></table>
+  {% else %}<dl><div><dt>Dư gốc hiện tại</dt><dd>{{ loan.principal_balance|vnd }} đ</dd></div><div><dt>Hẹn chuộc</dt><dd>{{ loan.due_at|datevn }}</dd></div><div><dt>Mốc tính lãi</dt><dd>{{ loan.interest_from|datevn }}</dd></div><div><dt>Lãi suất</dt><dd>{{ loan.monthly_rate|rate }}% / tháng</dd></div></dl>{% endif %}
+ </section>
+</div>
+<section class="lm-card">
+ <h3>Khách hàng <small>{{ 'KK · đọc trực tiếp' if customer_live else 'bản lưu trên phiếu' }}</small></h3>
+ <dl class="gd-customer"><div><dt>Họ tên</dt><dd>{{ customer.get('name') or 'Chưa có' }}</dd></div><div><dt>SĐT</dt><dd>{{ customer.get('phone') or loan.phone or 'Chưa có' }}</dd></div><div><dt>CCCD</dt><dd>{{ customer.get('cccd') or 'Chưa có' }}</dd></div><div><dt>CustID</dt><dd>{{ loan.cust_id or 'Chưa nối KK' }}</dd></div></dl>
+</section>

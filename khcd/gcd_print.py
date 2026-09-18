@@ -407,6 +407,30 @@ def giay(lid):
                        css_tinh_url=url_for("static", filename="gcd-print.css") + "?v=1")
 
 
+@bp.get("/bien-nhan/<int:lid>/giay-manh")
+def giay_manh(lid):
+    """MẢNH tờ GCD để IN THẲNG TẠI QUẦY (cách của BÁN LẺ: nhét tờ vào trang đang mở rồi window.print()
+    từ chính cửa sổ đó; máy quầy chạy Edge --kiosk-printing nên không có hộp thoại, không chuyển trang).
+
+    Dựng bằng ĐÚNG _dung_trang() rồi cắt lấy <section class="gcd-a5"> — vẫn MỘT BẢN VẼ với trang in và
+    bản PDF, không có template thứ hai để trôi. Phiếu bị khóa in → 423 JSON để trang quầy báo lý do.
+    Không có ảnh nền, không thước: mảnh này chỉ có CHỮ + MÃ VẠCH như bản in thật."""
+    ctx = live.receipt_context(lid)
+    khoa = _khoa_in(ctx["loan"])
+    if khoa:
+        return {"ok": False, "khoa": True, "ly_do": khoa}, 423
+    ctx["phien"] = _phien(ctx)
+    layout, nguon = G.doc_bo_cuc()
+    html = _dung_trang(ctx, layout, nguon, nen=False, thuoc=False, may_tt=None, lid=lid,
+                       css_url=_css_url(False), css_tinh_url=url_for("static", filename="gcd-print.css") + "?v=1")
+    m = re.search(r'<section class="gcd-a5" id="gcd-to">.*?</section>', html, re.S)
+    if not m:
+        return {"ok": False, "ly_do": "Không dựng được tờ giấy cầm đồ."}, 500
+    res = Response(m.group(0), content_type="text/html; charset=utf-8")
+    res.headers["X-KHCD-Bo-Cuc"] = nguon
+    return res
+
+
 @bp.post("/bien-nhan/<int:lid>/in-may-chu")
 def in_may_chu(lid):
     """In thẳng tới máy in đã lưu trong cấu hình. LUÔN trả JSON 200, KHÔNG BAO GIỜ trả lỗi.

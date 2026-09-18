@@ -1,7 +1,8 @@
 <!doctype html><html lang="vi"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Khách hàng · Kim Hạnh 2</title>
-<link rel="stylesheet" href="{{ popup_asset_url('css/fonts.css') }}">
+{# Font dùng CHUNG với trang chính (cùng 10 tệp woff2 byte-identical với KHBL) → cache trình duyệt dùng lại, không tải lại qua cầu nối #}
+<link rel="stylesheet" href="{{ url_for('static',filename='css/fonts.css') }}">
 <link rel="stylesheet" href="{{ popup_asset_url('css/khbl.css') }}">
 <link rel="stylesheet" href="{{ url_for('static',filename='customer-popup-frame.css') }}">
 <script src="{{ popup_asset_url('js/vendor/htmx.min.js') }}" defer></script>

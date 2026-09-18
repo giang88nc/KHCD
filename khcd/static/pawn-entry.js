@@ -269,6 +269,8 @@
   function lockForm(on){
     form.classList.toggle('desk-locked',on);
     initialDisabled.forEach((disabled,field)=>{field.disabled=on?!['receipt-query','scan-receipt','open-desk-sessions','new-receipt'].includes(field.id):disabled;});
+    // DS nghiệp vụ: thu gọn khi CẦM MỚI, mở ra khi đã mở đúng biên nhận (on=true).
+    const dsNghiepVu=document.querySelector('.desk-actions');if(dsNghiepVu)dsNghiepVu.open=!!on;
     $('open-receipt-history').disabled=!(on&&loaded);
     $('receipt-history-count').hidden=!(on&&loaded);
     $('receipt-history-count').textContent=on&&loaded?'('+String(loaded.session_count??0)+')':'';
@@ -321,9 +323,34 @@
   $('confirm-open-receipt').addEventListener('click',()=>{if(pendingReceipt)openReceipt(pendingReceipt);pendingReceipt=null;$('receipt-open-dialog').close();});
   $('receipt-query').addEventListener('keydown',e=>{if(e.key==='Enter'){e.preventDefault();lookupReceipt(e.target.value);}});
   document.addEventListener('khcd:open-receipt',e=>{if(!busy&&e.detail?.sku)lookupReceipt(String(e.detail.sku));});
-  $('print-pawn').addEventListener('click',()=>{if(loaded)window.open(loaded.detail_url,'_blank','noopener');});
+  // IN PHIẾU = IN THẲNG NGAY TẠI TRANG (cách của BÁN LẺ "THANH TOÁN & IN"): đếm lượt in → tải MẢNH tờ giấy
+  // cầm đồ (/bien-nhan/<id>/giay-manh, cùng bản vẽ với trang in) → nhét vào #khcd-in (ẩn trên màn) → chờ ảnh
+  // mã vạch + CSS bố cục áp xong → window.print() từ CHÍNH cửa sổ này → afterprint dọn. Máy quầy chạy Edge
+  // --kiosk-printing nên không có hộp thoại, không mở tab. Phiếu bị khóa in (đã chuộc/thanh lý/báo mất) → 423.
+  $('print-pawn').addEventListener('click',async()=>{
+    if(!loaded)return;const b=$('print-pawn'),current=loaded,box=$('khcd-in');b.disabled=true;
+    const say=t=>{$('desk-save-status').textContent=t;};
+    const fd=()=>{const d=new FormData();d.set('csrf_token',form.elements.csrf_token.value);return d;};
+    try{
+      const r=await fetch(current.giay_url.replace(/\/giay$/,'/giay-manh'),{headers:{Accept:'text/html'},cache:'no-store'});
+      if(r.status===423){const j=await r.json();say(j.ly_do||'Phiếu này không in giấy.');await KHDialog.notify({title:'Không in phiếu này',message:j.ly_do||''});return;}
+      if(!r.ok||r.redirected)throw new Error('Không tải được tờ giấy cầm đồ ('+r.status+'). Đăng nhập lại rồi thử.');
+      box.innerHTML=await r.text();
+      // Chốt chặn như gcd-print.js: bố cục (mau-in.css) phải thật sự áp — không thì 17 khối chồng lên góc tờ in sẵn.
+      const khoi=box.querySelector('[data-gcd]');
+      if(!khoi||getComputedStyle(khoi).position!=='absolute'){box.innerHTML='';throw new Error('Chưa nạp được bố cục in — tải lại trang (F5) rồi in lại.');}
+      await Promise.all([...box.querySelectorAll('img')].map(im=>im.complete?null:new Promise(ok=>{im.onload=im.onerror=ok;})));
+      try{const c=await fetch(current.print_count_url,{method:'POST',body:fd(),headers:{Accept:'application/json'}});if(c.ok){const d=await c.json();current.count_print=d.count_print;b.textContent='▤ IN PHIẾU'+(d.count_print?' ('+d.count_print+')':'');}}catch(e){}
+      say('Đang in giấy cầm đồ '+current.sku+'…');
+      const don=()=>{box.innerHTML='';window.removeEventListener('afterprint',don);say('Đã gửi in giấy cầm đồ '+current.sku+'.');};
+      window.addEventListener('afterprint',don);setTimeout(()=>{if(box.innerHTML)don();},90000);
+      await new Promise(ok=>setTimeout(ok,80));window.print();
+    }catch(e){say(e.message||'Không in được.');await KHDialog.notify({title:'Chưa in được',message:e.message||''});}
+    finally{b.disabled=!(loaded);}
+  });
   document.querySelectorAll('[data-pawn-action]').forEach(button=>button.addEventListener('click',async()=>{
-    if(busy)return;const id=Number(button.dataset.pawnAction);if(id===1){await confirmClearDraft();return;}
+    if(busy)return;const id=Number(button.dataset.pawnAction);
+    if(id===1){await confirmClearDraft();const o=$('receipt-query');o.focus();o.select();const khung=o.closest('.receipt-command-code');if(khung){khung.classList.remove('is-flash');void khung.offsetWidth;khung.classList.add('is-flash');}return;}
     if(!loaded)return;if(loaded.preview_url){showNativeOperation(id,button.dataset.actionName);return;}const version=++operationVersion;
     $('operation-title').textContent=button.dataset.actionName;$('operation-receipt').textContent=loaded.sku+' · '+loaded.customer.name;
     const incoming=[3,4,5].includes(id),outgoing=id===2;
@@ -464,6 +491,10 @@
     }catch(e){if(version===qrVersion)box.textContent=e.message||'Chưa đọc được mã QR.';}
   }
   window.addEventListener('beforeunload',event=>{stopCamera();if(dirty){event.preventDefault();event.returnValue='';}});
+  // 4 iframe ảnh (CCCD trước/sau · sản phẩm · QR) là 4 trang KHBL đầy đủ đi qua cầu nối (16 tài nguyên mỗi khung):
+  // nạp SAU khi trang quầy đã hiện (window load) để form dùng được ngay; iframe gửi 'ready' → khung cha gửi lại trạng thái.
+  const napKhungAnh=()=>{frames.forEach(f=>{if(f.dataset.src&&!f.getAttribute('src'))f.src=f.dataset.src;});};
+  if(document.readyState==='complete')napKhungAnh();else window.addEventListener('load',napKhungAnh,{once:true});
   render();update(true);previewItem();if($('entry-customer').value)choose($('entry-customer').value);const initialReceipt=new URLSearchParams(location.search).get('receipt');if(initialReceipt)lookupReceipt(initialReceipt);
   window.addEventListener('focus',async()=>{if(!loaded?.print_count_url)return;const current=loaded;try{const r=await fetch(current.print_count_url);if(r.ok&&loaded===current){const d=await r.json();current.count_print=d.count_print;$('print-pawn').textContent='▤ IN PHIẾU'+(d.count_print?' ('+d.count_print+')':'');}}catch(_){}});
   const gallery=$('desk-photo-gallery');let galleryPhotos=[],galleryIndex=0;

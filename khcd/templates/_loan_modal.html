@@ -1,0 +1,59 @@
+{% set overdue = loan.overdue_days %}
+<div class="lm-head">
+ <div>
+  <div class="lm-title"><span class="lm-sku">{{ loan.sku }}</span><span class="badge {{ loan.state_class }}"><i></i>{{ loan.state_label }}</span>{% if overdue %}<span class="badge danger"><i></i>Quá hạn {{ overdue }} ngày</span>{% endif %}{% if loan.receipt_lost %}<span class="badge warning"><i></i>Mất biên nhận</span>{% endif %}</div>
+  <p class="lm-meta">Lập {{ loan.opened_at|datevn }} · {{ loan.employee_name or 'Chưa có NV' }} · Tủ {{ loan.safe or '—' }}{% if loan.legacy_pawn_id %} · nguồn cũ #{{ loan.legacy_pawn_id }}{% endif %}</p>
+ </div>
+ <button type="button" class="lm-close" data-modal-close aria-label="Đóng">×</button>
+</div>
+<div class="lm-actions">
+ <a class="btn btn-primary" href="{{ url_for('web.pawn_new',receipt=loan.sku) }}">Mở tại quầy</a>
+ <a class="btn" href="{{ url_for('live.print_receipt',lid=loan.id) }}" target="_blank" rel="noopener">In phiếu</a>
+ <a class="btn" href="{{ url_for('gcd.giay',lid=loan.id) }}" target="_blank" rel="noopener">In giấy cầm đồ</a>
+ <a class="btn" href="{{ url_for('loans.detail',loan_id=loan.id) }}">Đối soát chi tiết</a>
+</div>
+<div class="lm-kpis">
+ <div class="is-main"><span>Dư gốc</span><b>{{ loan.principal_balance|vnd }} đ</b></div>
+ <div><span>Gốc ban đầu</span><b>{{ loan.original_principal|vnd }} đ</b></div>
+ <div><span>Lãi suất</span><b>{{ loan.monthly_rate|rate }}% / tháng</b></div>
+ <div><span>Mốc tính lãi</span><b>{{ loan.interest_from|datevn }}</b></div>
+ <div class="{{ 'is-warn' if overdue }}"><span>Hẹn chuộc</span><b>{{ loan.due_at|datevn }}</b></div>
+</div>
+<div class="lm-grid">
+ <section class="lm-card">
+  <h3>Khách hàng <small>{{ 'KK · đọc trực tiếp' if customer_live else 'bản lưu trên phiếu' }}</small></h3>
+  <dl>
+   <div><dt>Họ tên</dt><dd>{{ customer.get('name') or 'Chưa có' }}</dd></div>
+   <div><dt>SĐT</dt><dd>{{ customer.get('phone') or loan.phone or 'Chưa có' }}</dd></div>
+   <div><dt>CCCD</dt><dd>{{ customer.get('cccd') or 'Chưa có' }}</dd></div>
+   <div><dt>CustID</dt><dd>{{ loan.cust_id or 'Chưa nối KK' }}</dd></div>
+   <div class="lm-wide"><dt>Địa chỉ</dt><dd>{{ customer.get('addr') or 'Chưa có' }}</dd></div>
+  </dl>
+ </section>
+ <section class="lm-card">
+  <h3>Tài sản <small>{{ items|length }} món</small></h3>
+  {% if items %}<table class="lm-table"><thead><tr><th>#</th><th>Loại · Mô tả</th><th class="right">TL vàng</th><th class="right">Định giá</th></tr></thead><tbody>{% for i in items %}<tr><td>{{ i.line_no }}</td><td><b>{{ i.gold_code }}</b> {{ i.description }}<small>Tổng {{ i.gross_weight|rate }} · hột {{ i.stone_weight|rate }} {{ i.unit or '' }}</small></td><td class="right">{{ i.net_weight|rate }}</td><td class="right">{{ i.valuation|vnd if i.valuation is not none else '—' }}</td></tr>{% endfor %}</tbody></table>
+  {% elif legacy_descriptions %}<p class="lm-note">{{ legacy_descriptions|join(' / ') }}</p><p class="muted">Mô tả gốc, chưa tách món.</p>
+  {% else %}<p class="muted">Thiếu dữ liệu món hàng.</p>{% endif %}
+ </section>
+</div>
+<section class="lm-card">
+ <h3>Lịch sử giao dịch <small>{{ logs|length }} phiên</small></h3>
+ {% if logs %}<div class="lm-scroll"><table class="lm-table lm-logs"><thead><tr><th>Thời gian</th><th>Nghiệp vụ</th><th class="right">Gốc trước</th><th class="right">Biến động</th><th class="right">Gốc sau</th><th class="right">Lãi</th><th class="right">Tiền mặt</th><th class="right">Chuyển khoản</th><th>Người thao tác</th></tr></thead><tbody>
+ {% for l in logs|reverse %}<tr class="op-{{ l.operation_id }}">
+  <td>{{ l.when }}<small>{{ 'Nguồn #'~l.legacy_log_id if l.legacy_log_id else 'Phiên #'~l.id }}{% if l.days %} · {{ l.days }} ngày{% endif %}</small></td>
+  <td><b>{{ l.operation_label }}</b>{% if l.reverses_log_id %}<small>Đảo phiên #{{ l.reverses_log_id }}</small>{% endif %}{% if l.lost_photo_url %}<small><a href="{{ l.lost_photo_url }}" target="_blank" rel="noopener">Cam kết báo mất</a></small>{% endif %}</td>
+  <td class="right">{{ l.principal_before|vnd }}</td>
+  <td class="right {{ 'is-plus' if l.principal_change>0 else 'is-minus' if l.principal_change<0 }}">{{ '+' if l.principal_change>0 }}{{ l.principal_change|vnd }}</td>
+  <td class="right money">{{ l.principal_after|vnd }}</td>
+  <td class="right">{{ l.interest|vnd }}{% if l.extra_amount or l.discount_amount %}<small>+{{ l.extra_amount|vnd }} / −{{ l.discount_amount|vnd }}</small>{% endif %}</td>
+  <td class="right {{ 'is-plus' if l.cash>0 else 'is-minus' if l.cash<0 }}">{{ l.cash|vnd }}</td>
+  <td class="right {{ 'is-plus' if l.bank>0 else 'is-minus' if l.bank<0 }}">{{ l.bank|vnd }}</td>
+  <td>{{ l.actor_legacy or 'Nguồn cũ' }}<small>{{ l.note or '' }}</small></td>
+ </tr>{% endfor %}</tbody></table></div>
+ <p class="muted lm-legend">Tiền mặt / chuyển khoản: dương = tiệm THU, âm = tiệm CHI. Số liệu giữ nguyên như đã ghi nhận, không tính lại lãi lịch sử.</p>
+ {% else %}<p class="muted">Chưa có phiên giao dịch.</p>{% endif %}
+</section>
+{% set available_photos = photos|selectattr('available')|list %}
+{% if available_photos %}<section class="lm-card"><h3>Hình ảnh <small>{{ available_photos|length }}</small></h3><div class="lm-photos">{% for p in available_photos %}<a href="{{ url_for('loans.photo',loan_id=loan.id,slot=p.slot) }}" target="_blank" rel="noopener" title="{{ p.label }}"><img loading="lazy" src="{{ url_for('loans.photo',loan_id=loan.id,slot=p.slot) }}" alt="{{ p.label }}"><span>{{ p.label }}</span></a>{% endfor %}</div></section>{% endif %}
+{% if loan.note %}<p class="lm-note">Ghi chú: {{ loan.note }}</p>{% endif %}

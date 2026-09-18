@@ -95,3 +95,16 @@ def test_staff_can_read_and_malformed_optional_data_is_reported(app,client,recei
     assert client.get(f'{BASE}/{lid}').status_code==200
     checks=client.get(f'{BASE}/{lid}/doi-soat').json['checks']
     assert any(c['label']=='Tham chiếu ảnh MySQL' and c['state']=='error' for c in checks)
+
+def test_listing_date_filter_and_view_popup(app,client,receipt):
+    lid=migrated(client,receipt)
+    # Mặc định lọc hôm nay: phiếu vừa có giao dịch phải hiện; tìm mã/SĐT/tên bỏ qua khoảng ngày.
+    assert 'CONVERT_TEST' in client.get(BASE).text
+    assert 'CONVERT_TEST' not in client.get(BASE+'?d1=2020-01-01&d2=2020-01-31').text
+    assert 'CONVERT_TEST' in client.get(BASE+'?d1=2020-01-01&d2=2020-01-31&q=CONVERT').text
+    assert 'CONVERT_TEST' in client.get(BASE+'?q=0900000001').text
+    assert client.get(BASE+'?d1=2020-01-01&d2=2026-01-01').status_code==400
+    popup=client.get(f'{BASE}/{lid}/xem');assert popup.status_code==200,popup.text
+    html=popup.get_data(as_text=True)
+    assert 'CONVERT_TEST' in html and 'Lịch sử giao dịch' in html and 'lm-logs' in html and '<html' not in html
+    assert client.get(f'{BASE}/999999/xem').status_code==404

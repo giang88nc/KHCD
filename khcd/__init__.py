@@ -42,6 +42,8 @@ def create_app(test_config=None):
     app.register_blueprint(conversion_bp)
     from .loans import bp as loans_bp
     app.register_blueprint(loans_bp)
+    from .transactions import bp as transactions_bp
+    app.register_blueprint(transactions_bp)
     from .live_loans import bp as live_bp
     app.register_blueprint(live_bp)
     # In bien nhan len GIAY CAM DO A5 ngang da in san; bo cuc doc tu khj_bl.pmv_state['gcd_layout'].

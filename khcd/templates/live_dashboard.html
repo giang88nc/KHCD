@@ -1,7 +1,49 @@
-{% extends 'base.html' %}{% from '_parts.html' import range_filter with context %}{% block content %}
-<div class="page-heading"><div><div class="eyebrow">KIM HẠNH 2 · CẦM ĐỒ</div><h1>Tổng quan</h1><p>Dư gốc và dòng tiền theo biên nhận đang vận hành.</p></div><a class="btn btn-primary" href="{{ url_for('web.pawn_new') }}">Cầm mới</a></div>
-{% if pending.count %}<div class="notice">Còn <b>{{ pending.count }} phiếu nguồn cũ chưa chuyển</b> · dư gốc nguồn {{ pending.principal|vnd }} đ, chưa tính vào số liệu vận hành bên dưới. <a href="{{ url_for('web.pawns',status='active') }}">Xem và đối soát phiếu cũ</a></div>{% endif %}
-<div class="period-toolbar">{{ range_filter(start,end,'web.dashboard') }}<a class="btn" href="?period=month">Tháng này</a></div>
-<div class="metric-grid"><article class="metric featured"><div class="metric-label">Dư gốc đang cầm</div><div class="metric-value">{{ metrics.principal|vnd }} đ</div><div>{{ metrics.count }} biên nhận</div></article><article class="metric"><div class="metric-label">Tiền đã chi</div><div class="metric-value">{{ data.totals.paid|vnd }} đ</div></article><article class="metric"><div class="metric-label">Tiền đã thu</div><div class="metric-value">{{ data.totals.received|vnd }} đ</div></article><article class="metric"><div class="metric-label">Lãi thu ròng</div><div class="metric-value">{{ data.totals.interest|vnd }} đ</div></article></div>
-<section class="panel"><h2>Lịch hẹn</h2><p>Quá hạn: <b>{{ metrics.overdue or 0 }}</b> · Đến hạn trong 4 ngày: <b>{{ metrics.due or 0 }}</b></p><a href="{{ url_for('loans.listing',state='ACTIVE') }}">Xem biên nhận đang cầm →</a></section>
-{% include '_live_transactions.html' %}{% endblock %}
+{% extends 'base.html' %}{% from '_parts.html' import range_filter with context %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='overview.css') }}?v=20260918a">{% endblock %}
+{% block content %}
+{% set s = ov %}
+<div class="page-heading ov-head"><div><div class="eyebrow">KIM HẠNH 2 · CẦM ĐỒ</div><h1>Tổng quan</h1><p>Sổ SQL mới (cd_loans) · {{ s.a.n|num }} phiếu đang cầm · số liệu tính đến hôm nay {{ today|datevn }}.</p></div>
+<div class="ov-tools">{{ range_filter(start,end,'web.dashboard') }}<a class="btn btn-small" href="?period=month">Tháng này</a><a class="btn btn-primary" href="{{ url_for('web.pawn_new') }}">Cầm mới</a></div></div>
+
+<div class="ov-kpis">
+ <article class="ov-kpi is-main"><span>Dư gốc đang cầm</span><b>{{ s.a.goc|vnd }} đ</b><small>{{ s.a.n|num }} phiếu · {{ s.tu|length }} tủ</small></article>
+ <article class="ov-kpi {{ 'is-bad' if s.a.qua_han }}"><span>Quá hạn</span><b>{{ s.a.qua_han|num }} phiếu</b><small>{{ s.a.qua_han_goc|vnd }} đ · {{ s.a.qh3 }} phiếu > {{ s.nguong.qua_han_thanh_ly }} ngày</small></article>
+ <article class="ov-kpi {{ 'is-warn' if s.a.sap_han }}"><span>Đến hạn ≤ {{ s.nguong.sap_han_ngay }} ngày</span><b>{{ s.a.sap_han|num }} phiếu</b><small>{{ s.a.sap_han_goc|vnd }} đ</small></article>
+ <article class="ov-kpi"><span>Giá trị vàng đang giữ</span><b>{% if s.co_gia %}{{ s.tong_gt|vnd }} đ{% else %}—{% endif %}</b><small>{% if s.ltv is not none %}LTV {{ '%.0f'|format(s.ltv*100) }}% · giá KHBL {{ s.gia_ngay }}{% else %}chưa có giá vàng{% endif %}</small></article>
+ <article class="ov-kpi"><span>Kỳ {{ start|datevn }} → {{ end|datevn }}</span><b>{{ s.ky_data.totals.interest|vnd }} đ lãi</b><small>thu {{ s.ky_data.totals.received|vnd }} · chi {{ s.ky_data.totals.paid|vnd }} · {{ s.ky_data.total }} phiên</small></article>
+ <article class="ov-kpi"><span>Lãi tháng này</span><b>{{ s.thang.lai|vnd }} đ</b><small>tháng trước {{ s.thang_truoc.lai|vnd }} đ · {{ s.thang.n }} phiên</small></article>
+</div>
+
+{% if s.canh_bao %}<section class="panel ov-panel"><h2>Cảnh báo & đề xuất <small>{{ s.canh_bao|length }} mục · tự sinh từ số liệu</small></h2>
+<ul class="ov-alerts">{% for c in s.canh_bao %}<li class="is-{{ c.muc }}"><b>{{ c.tieu_de }}</b><span>{{ c.de_xuat }}</span></li>{% endfor %}</ul></section>{% endif %}
+{% if s.nhan_dinh %}<section class="panel ov-panel"><h2>Nhận định</h2><ul class="ov-notes">{% for n in s.nhan_dinh %}<li>{{ n|safe }}</li>{% endfor %}</ul></section>{% endif %}
+
+<div class="ov-grid3">
+ <section class="panel ov-panel"><h2>Tuổi nợ <small>theo ngày hẹn chuộc</small></h2>
+  <table class="ov-table"><thead><tr><th>Nhóm</th><th class="right">Phiếu</th><th class="right">Dư gốc</th><th class="right">%</th></tr></thead><tbody>
+  {% for t in s.tuoi_no %}<tr class="is-{{ t.mau }}"><td>{{ t.nhan }}</td><td class="right">{{ t.n|num }}</td><td class="right">{{ t.goc|vnd }}</td><td class="right">{{ '%.0f'|format(t.pct) }}%</td></tr>{% endfor %}
+  </tbody></table></section>
+ <section class="panel ov-panel"><h2>Tài sản đang giữ <small>{{ s.vang|sum(attribute='mon') }} món · giá thu vào KHBL</small></h2>
+  <table class="ov-table"><thead><tr><th>Loại</th><th class="right">Món</th><th class="right">TL vàng</th><th class="right">Giá trị</th></tr></thead><tbody>
+  {% for v in s.vang %}<tr><td>{{ v.nhan }}</td><td class="right">{{ v.mon|num }}</td><td class="right">{{ v.tl|rate }}</td><td class="right">{{ v.gia_tri|vnd if v.gia_tri is not none else '—' }}</td></tr>{% endfor %}
+  </tbody>{% if s.co_gia %}<tfoot><tr><td>Tổng có giá</td><td></td><td></td><td class="right">{{ s.tong_gt|vnd }}</td></tr></tfoot>{% endif %}</table></section>
+ <section class="panel ov-panel"><h2>Hoạt động trong kỳ <small>{{ start|datevn }} → {{ end|datevn }}</small></h2>
+  <table class="ov-table"><thead><tr><th>Nghiệp vụ</th><th class="right">Phiên</th><th class="right">Gốc</th><th class="right">Lãi</th></tr></thead><tbody>
+  {% for h in s.hoat_dong %}<tr class="{{ 'is-zero' if not h.n }}"><td><a href="{{ url_for('giaodich.listing',d1=s.ky.d1,d2=s.ky.d2,kind=h.kind) }}">{{ h.nhan }}</a></td><td class="right">{{ h.n }}</td><td class="right">{{ h.tien|vnd }}</td><td class="right">{{ h.lai|vnd }}</td></tr>{% endfor %}
+  </tbody></table>
+  <p class="ov-foot">Theo tủ: {% for t in s.tu %}<b>Tủ {{ t.tu }}</b> {{ t.n }} phiếu · {{ t.goc|vnd }} ({{ '%.0f'|format(t.pct) }}%){% if not loop.last %} · {% endif %}{% endfor %}</p></section>
+</div>
+
+<div class="ov-grid2">
+ <section class="panel ov-panel"><h2>Sắp đến hạn <small>{{ s.nguong.sap_han_ngay }} ngày tới · gọi khách</small></h2>
+  {% if s.sap_han %}<table class="ov-table"><thead><tr><th>Biên nhận</th><th>Khách</th><th class="right">Dư gốc</th><th>Hẹn</th><th></th></tr></thead><tbody>
+  {% for r in s.sap_han %}<tr><td class="code">{{ r.sku }}</td><td>{{ r.customer_name or 'Chưa có tên' }}<small>{{ r.customer_phone or r.phone or '' }}</small></td><td class="right">{{ r.goc|vnd }}</td><td>{{ r.due_at|datevn }}</td><td class="right"><a class="btn btn-small" href="{{ url_for('loans.listing',q=r.sku) }}#xem={{ r.id }}">XEM</a></td></tr>{% endfor %}
+  </tbody></table>{% else %}<p class="muted">Không có phiếu nào đến hạn trong {{ s.nguong.sap_han_ngay }} ngày tới.</p>{% endif %}
+  <p class="ov-foot"><a href="{{ url_for('loans.listing',state='ACTIVE',d1=s.ky.d1,d2=s.ky.d2) }}">Xem toàn bộ phiếu đang cầm →</a></p></section>
+ <section class="panel ov-panel"><h2>Quá hạn lâu nhất <small>> {{ s.nguong.qua_han_thanh_ly }} ngày · xét thanh lý</small></h2>
+  {% if s.qua_han %}<table class="ov-table"><thead><tr><th>Biên nhận</th><th>Khách</th><th class="right">Dư gốc</th><th class="right">Quá</th><th></th></tr></thead><tbody>
+  {% for r in s.qua_han %}<tr class="is-bad"><td class="code">{{ r.sku }}</td><td>{{ r.customer_name or 'Chưa có tên' }}<small>{{ r.customer_phone or r.phone or '' }}</small></td><td class="right">{{ r.goc|vnd }}</td><td class="right">{{ r.qua }} ngày</td><td class="right"><a class="btn btn-small" href="{{ url_for('loans.listing',q=r.sku) }}#xem={{ r.id }}">XEM</a></td></tr>{% endfor %}
+  </tbody></table>{% else %}<p class="muted">Không có phiếu quá hạn trên {{ s.nguong.qua_han_thanh_ly }} ngày.</p>{% endif %}
+  <p class="ov-foot"><a href="{{ url_for('loans.listing',state='OVERDUE',d1=s.d366,d2=s.ky.d2) }}">Xem toàn bộ phiếu quá hạn →</a>{% if s.ltv_cao %} · LTV cao: {% for g in s.ltv_cao %}<a href="{{ url_for('loans.listing',q=g.sku) }}#xem={{ g.id }}">{{ g.sku }} ({{ '%.0f'|format(g.ltv*100) }}%)</a>{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}</p></section>
+</div>
+{% endblock %}

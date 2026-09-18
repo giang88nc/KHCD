@@ -46,7 +46,9 @@ def test_create_native_only_and_views(native,client):
     with native.app_context():
         for table in ('pawn','pawn_log','khcd_event','khcd_pawn_desk','khcd_pawn_customer','khcd_pawn_photo'):assert db.one('SELECT COUNT(*) n FROM '+table)['n']==0
         assert db.one('SELECT COUNT(*) n FROM cd_loans')['n']==1
-        assert db.one('SELECT COUNT(*) n FROM cd_payments')['n']==2
+        assert db.one('SELECT COUNT(*) n FROM cd_payments')['n']==1
+        payment=db.one('SELECT * FROM cd_payments')
+        assert payment['channel'] is None and payment['cashPay']==payment['amount'] and payment['cardPay']==0
         sku=L.loan(lid)['sku']
     r=client.get('/camdo/lap-phieu/tra-phieu',query_string={'q':sku});assert r.status_code==200,r.data
     assert r.json['cancellation']['allowed']
@@ -418,8 +420,9 @@ def test_outgoing_qr_exact_amount_and_atomic_payment_edit(native,client):
     preview=client.post(url,data=data)
     assert preview.status_code==200,preview.json
     parsed=QR.parse(preview.json['qr_payload'])
-    assert preview.json['bank_reference']=='THANH TOÁN TIỀN VÀNG KH'+str(data['log_id'])
-    assert parsed['info']=='THANH TOAN TIEN VANG KH'+str(data['log_id'])
+    expected_ref=L.reference(now(),lid,data['log_id'])
+    assert preview.json['bank_reference']==expected_ref
+    assert parsed['info']==expected_ref
     assert parsed['hop_le'] and parsed['amount']==1234567 and parsed['account']=='0011223344'
     saved=client.post(url,data={**data,'mode':'save'})
     assert saved.status_code==200,saved.json
@@ -430,9 +433,10 @@ def test_outgoing_qr_exact_amount_and_atomic_payment_edit(native,client):
         log=L.latest(lid);rows=db.all('SELECT * FROM cd_payments WHERE log_id=%s',(log['id'],))
         assert sum(p['amount'] for p in rows)==10000000
         assert len(L.unpack(log['terms_json'])['payment_changes'])==1
-        bank=next(p for p in rows if p['channel']=='BANK')
-        info=L.unpack(bank['bank_snapshot']);assert bank['amount']==1234567 and info['transfer_status']=='PREPARED'
-        assert QR.parse(info['qr_payload'])['amount']==bank['amount']
+        assert len(rows)==1
+        bank=rows[0]
+        info=L.unpack(bank['bank_snapshot']);assert bank['cashPay']==10000000 and bank['cardPay']==0 and info['transfer_status']=='PREPARED'
+        assert QR.parse(info['qr_payload'])['amount']==1234567
     image=client.get(f"/camdo/phien/{data['log_id']}/qr")
     assert image.status_code==200 and image.content_type=='image/png'
     assert client.post(url,data={**data,'mode':'save','request_key':uuid.uuid4().hex}).status_code==400
@@ -586,7 +590,7 @@ def test_opening_delete_rolls_back_all_tables_on_failure(native,client,monkeypat
         assert L.loan(lid)['principal_balance']==10000000
         assert L.latest(lid)['operation_id']==1
         assert db.one('SELECT COUNT(*) n FROM cd_loan_items WHERE loan_id=%s',(lid,))['n']==1
-        assert db.one('SELECT COUNT(*) n FROM cd_payments')['n']==2
+        assert db.one('SELECT COUNT(*) n FROM cd_payments')['n']==1
 
 
 def test_lost_missing_photo_rejected_without_writes(native,client):

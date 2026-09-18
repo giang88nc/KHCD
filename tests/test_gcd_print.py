@@ -255,7 +255,7 @@ def phieu(app):
             "opened_at,interest_from,due_at,original_principal,principal_balance,monthly_rate,safe,"
             "employee_id,employee_name,note,customer_snapshot,terms_json,documents_json,legacy_json,"
             "source_hash,target_hash,migration_state,converted_at,converted_by,converted_username) VALUES "
-            "(NULL,'CD260915TEST000001','0900000001','','ACTIVE',1,0,'2026-09-01 08:00:00','2026-09-01 08:00:00',"
+            "(NULL,'CD26091500001','0900000001','','ACTIVE',1,0,'2026-09-01 08:00:00','2026-09-01 08:00:00',"
             "'2026-10-01 08:00:00',15000000,12000000,3.0,'1','EMP1','Nhân viên QA','ghi chú thử',%s,"
             "'{}','{}','{}','','','LIVE','2026-09-01 08:00:00',1,'khj_admin')",
             (json.dumps({'name': 'Nguyễn Văn Khách', 'addr': 'Khóm 4, TT. Năm Căn, Năm Căn, Cà Mau',
@@ -450,7 +450,7 @@ def test_bang_cuong_hai_ban_giong_het(monkeypatch):
     assert b['noi_dung'] == ['[99] Nhẫn thử 3.00c']
     # QR mang NGUYÊN mã phiếu kể cả CHỮ CÁI — khác mã vạch Code 39 chỉ mang phần chữ số.
     assert b['qr'].startswith('data:image/svg+xml') and b['qr'] == MV.svg_qr('KH22609020810')
-    assert MV.so_ma_vach('KH22609020810') == '22609020810'
+    assert MV.so_ma_vach('KH22609020810') == 'KH22609020810'
 
 
 def test_bang_cuong_tat_ca_hai_thi_khong_ve_qr(monkeypatch):
@@ -692,3 +692,26 @@ def test_bao_mat_da_mo_khoa_van_in_duoc(client, phieu, app):
     html = client.get('/camdo/bien-nhan/%d/giay' % phieu).get_data(as_text=True)
     assert 'gcd-nut-khoa' not in html and 'KHÔNG IN:' not in html
     assert 'id="tracked-print-button"' in html or 'id="gcd-nut-in"' in html
+
+
+def test_css_in_a4t_nua_tren_khong_le():
+    """A4T: khổ A4 đứng, tờ A5 ngang sát mép trên-trái (nửa trên tờ A4), không canh giữa dù canh='giua'."""
+    css = G.css_in({'kho': 'A4T', 'canh': 'giua'})
+    assert '@page{size:auto;margin:0}' in css   # không ép khổ/hướng, người in chọn A4 đứng trong hộp thoại
+    assert 'margin:0!important' in css and 'margin:0 auto' not in css
+    assert 'left:0mm!important' in css and 'top:0mm!important' in css
+
+
+def test_giay_manh_tra_mang_to_giay_va_khoa_423(client, phieu):
+    """Mảnh in thẳng tại quầy: chỉ <section class="gcd-a5">, đủ data-gcd, không <html>; phiếu khóa → 423."""
+    lid = phieu
+    r = client.get(f'/camdo/bien-nhan/{lid}/giay-manh')
+    assert r.status_code == 200, r.get_data(as_text=True)
+    html = r.get_data(as_text=True)
+    assert html.startswith('<section class="gcd-a5"') and html.rstrip().endswith('</section>') and '<html' not in html
+    assert 'data-gcd="ma_phieu"' in html and 'data-gcd="ma_phieu_vach"' in html
+    from khcd import db
+    with client.application.app_context():
+        db.execute("UPDATE cd_loans SET loan_state='REDEEMED',principal_balance=0 WHERE id=%s", (lid,))
+    r = client.get(f'/camdo/bien-nhan/{lid}/giay-manh')
+    assert r.status_code == 423 and r.json['khoa']

@@ -189,7 +189,7 @@ def pawn_new():
         recent=[]
     employees=[]
     if master.enabled():
-        try:employees=master.call('employees')['rows']
+        try:employees=master.employees()
         except master.Unavailable as exc:error=error or str(exc)
     actions=db.all('SELECT id,name,sort FROM pawn_status ORDER BY sort,id')
     safes=[]
