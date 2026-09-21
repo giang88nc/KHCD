@@ -9,6 +9,7 @@ from . import db, services as svc, auth
 from .domain import today, now, date_range, BusinessError, quote, parse_date, EVENTS
 from . import pmv_customers as pmv, customer_compare as compare
 from . import customer_master as master
+from . import gold_prices as gold
 
 bp=Blueprint('web',__name__)
 attempts={}
@@ -284,6 +285,36 @@ def pawn_detail(pid):
     audit=db.all('SELECT kind,actor,created_at,note FROM khcd_event WHERE pawn_id=%s ORDER BY id DESC',(pid,)) if db.schema_ready() else []
     new_due=max(today(),parse_date(p['date3'] or today()))+timedelta(days=30)
     return render_template('pawn_detail.html',title=p['sku'],p=p,logs=logs,calc=calc,quote_error=quote_error,new_due=new_due,audit=audit,key=secrets.token_urlsafe(24))
+
+@bp.get('/camdo/phieu-cu')
+def pawn_legacy():
+    """Phiếu cũ CHƯA chuyển sang sổ mới (không có dòng trong cd_loans) — chỗ xử lý dần.
+
+    Truy vấn CỐ Ý không nối `customer` / `gold_price` (hai bảng nguồn cũ đã bỏ): trang này phải
+    mở được kể cả khi chỉ còn pawn + pawn_log. Tên loại vàng lấy từ danh mục KHBL.
+    """
+    q=request.args.get('q','').strip()[:100];state=request.args.get('status','active');page=paging()
+    states={'active':'p.status IN (1,2,3,4,7)','closed':'p.status IN (0,5,6)','unlinked':'k.pmv_cust_id IS NULL','all':'1=1'}
+    where=['l.id IS NULL',states.get(state,states['active'])];params=[]
+    if q:
+        where.append('(p.sku LIKE %s OR p.phone LIKE %s)');params.extend(['%'+q+'%']*2)
+    base=('FROM pawn p LEFT JOIN cd_loans l ON l.legacy_pawn_id=p.id '
+          'LEFT JOIN khcd_pawn_customer k ON k.pawn_id=p.id WHERE '+' AND '.join(where))
+    total=db.one('SELECT COUNT(*) n '+base,params)['n']
+    rows=db.all('SELECT p.id,p.sku,p.phone,p.date1,p.date3,p.value,p.status,p.gold1,p.mota1,p.wgg1,'
+                'k.pmv_cust_id,(SELECT COUNT(*) FROM pawn_log g WHERE g.pawn_id=p.id) logs '
+                +base+' ORDER BY p.id DESC LIMIT 20 OFFSET %s',params+[(page-1)*20])
+    ten_vang={code:name for code,_kind,name,_unit in gold.TYPES}
+    for r in rows:
+        r['gold_name']=ten_vang.get(str(r['gold1'] or '').lower(),r['gold1'] or '')
+        r['ly_do']=('Chưa nối khách KK' if not r['pmv_cust_id'] else
+                    'Không có dòng lịch sử' if not r['logs'] else '')
+    dem={k:db.one('SELECT COUNT(*) n FROM pawn p LEFT JOIN cd_loans l ON l.legacy_pawn_id=p.id '
+                  'LEFT JOIN khcd_pawn_customer k ON k.pawn_id=p.id WHERE l.id IS NULL AND '+v)['n']
+         for k,v in states.items()}
+    return render_template('phieu_cu.html',title='Phiếu cũ chưa chuyển',rows=rows,q=q,state=state,
+        total=total,page=page,pages=max(1,(total+19)//20),dem=dem,
+        da_chuyen=db.one('SELECT COUNT(*) n FROM cd_loans WHERE legacy_pawn_id IS NOT NULL')['n'])
 
 @bp.post('/camdo/phieu-cam-do/<int:pid>/<action>')
 def pawn_action(pid,action):

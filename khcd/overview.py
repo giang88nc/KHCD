@@ -45,7 +45,7 @@ def stats(d1, d2):
         FROM cd_loans WHERE loan_state='ACTIVE'""",
         dict(t=hom_nay, t7=hom_nay + timedelta(days=NGUONG['sap_han_ngay']), t30=hom_nay - timedelta(days=30),
              t90=hom_nay - timedelta(days=NGUONG['qua_han_thanh_ly']), t60=hom_nay - timedelta(days=NGUONG['lai_chua_thu_ngay'])))
-    a = {k: (int(v) if k in ('n','chua_han','sap_han','qua_han','qh1','qh2','qh3','lai_lau','chua_kk','mat_bn','lai_thap') else _d(v)) for k, v in a.items()}
+    a = {k: (int(v or 0) if k in ('n','chua_han','sap_han','qua_han','qh1','qh2','qh3','lai_lau','chua_kk','mat_bn','lai_thap') else _d(v)) for k, v in a.items()}
     tuoi_no = [dict(nhan='Chưa đến hạn', n=a['chua_han'], goc=a['chua_han_goc'], mau='ok'),
                dict(nhan='Đến hạn ≤ %d ngày' % NGUONG['sap_han_ngay'], n=a['sap_han'], goc=a['sap_han_goc'], mau='warn'),
                dict(nhan='Quá hạn 1–30 ngày', n=a['qh1'], goc=a['qh1_goc'], mau='warn'),

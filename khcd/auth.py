@@ -2,7 +2,6 @@
 import hashlib
 import hmac
 import re
-from datetime import datetime, timezone
 from flask import current_app, session
 from django.conf import settings
 
@@ -13,7 +12,7 @@ if not settings.configured:
         'django.contrib.auth.hashers.ScryptPasswordHasher',
     ])
 from django.contrib.auth.hashers import check_password, make_password
-from . import db
+from . import db, domain
 
 FIELDS=('id','password','last_login','is_superuser','username','first_name',
         'last_name','email','is_staff','is_active','date_joined','passcode')
@@ -113,7 +112,7 @@ def establish_session(user):
         auth_signature=session_signature(user),csrf=secrets.token_urlsafe(32))
     session.permanent=True
     db.execute('UPDATE auth_user SET last_login=%s WHERE id=%s',
-        (datetime.now(timezone.utc).replace(tzinfo=None),user['id']))
+        (domain.now(),user['id']))   # giờ VN như mọi cột khj_cd (sửa 20/09/2026)
 
 def current_user():
     if session.get('auth_version')!=1 or not isinstance(session.get('user_id'),int):

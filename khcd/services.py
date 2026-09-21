@@ -10,19 +10,30 @@ from . import pawn_desk as desk
 from .domain import ACTIVE, BusinessError, decimal, money, now, today, parse_date, quote
 
 PAWN_SELECT = """SELECT p.*, c.id customer_id, c.name customer_name, c.cccd, c.addr,
- COALESCE(g.name,CASE p.gold1 WHEN '18k' THEN 'VÀNG 18K (cũ)' WHEN '24k' THEN 'VÀNG 24K (cũ)' WHEN '99.99' THEN 'VÀNG 9999 (cũ)' END) gold_name,
- COALESCE(g.unit,CASE WHEN p.gold1 IN ('18k','24k','99.99') THEN 'chỉ' END) gold_unit,
- COALESCE(g2.name,CASE p.gold2 WHEN '18k' THEN 'VÀNG 18K (cũ)' WHEN '24k' THEN 'VÀNG 24K (cũ)' WHEN '99.99' THEN 'VÀNG 9999 (cũ)' END) gold2_name,
- COALESCE(g2.unit,CASE WHEN p.gold2 IN ('18k','24k','99.99') THEN 'chỉ' END) gold2_unit
+ {g1_name} gold_name,
+ {g1_unit} gold_unit,
+ {g2_name} gold2_name,
+ {g2_unit} gold2_unit
  FROM pawn p LEFT JOIN (SELECT phone,MIN(id) id FROM customer GROUP BY phone) cm ON cm.phone=p.phone
  LEFT JOIN customer c ON c.id=cm.id
- LEFT JOIN gold_price g ON g.scut=p.gold1
- LEFT JOIN gold_price g2 ON g2.scut=p.gold2"""
+"""
+
+# Danh mục vàng CŨ (bảng `gold_price`) đã bỏ khỏi khj_cd 20/09/2026 — tên/đơn vị suy từ
+# danh mục dùng chung gold_prices.TYPES, không nối bảng nữa.
+def _gold_case(col,field):
+    from .gold_prices import TYPES
+    ve={code:(name if field=='name' else unit) for code,_kind,name,unit in TYPES}
+    ve.update({'18k':('VÀNG 18K (cũ)' if field=='name' else 'chỉ'),'24k':('VÀNG 24K (cũ)' if field=='name' else 'chỉ'),
+               '99.99':('VÀNG 9999 (cũ)' if field=='name' else 'chỉ')})
+    khi=' '.join("WHEN '"+k+"' THEN '"+v.replace("'","''")+"'" for k,v in ve.items())
+    return 'CASE LOWER('+col+') '+khi+' END'
 
 
 def pawn_select():
-    if not master.enabled():return PAWN_SELECT
-    return PAWN_SELECT.replace('c.id customer_id, c.name customer_name, c.cccd, c.addr,',
+    sql=PAWN_SELECT.format(g1_name=_gold_case('p.gold1','name'),g1_unit=_gold_case('p.gold1','unit'),
+                           g2_name=_gold_case('p.gold2','name'),g2_unit=_gold_case('p.gold2','unit'))
+    if not master.enabled():return sql
+    return sql.replace('c.id customer_id, c.name customer_name, c.cccd, c.addr,',
         'k.pmv_cust_id, NULL customer_id, NULL customer_name, NULL cccd, NULL addr,').replace(
         'LEFT JOIN (SELECT phone,MIN(id) id FROM customer GROUP BY phone) cm ON cm.phone=p.phone\n LEFT JOIN customer c ON c.id=cm.id',
         'LEFT JOIN khcd_pawn_customer k ON k.pawn_id=p.id')

@@ -172,7 +172,7 @@ def target(pid):
     result=dict(loan=data,items=[],logs=[],payments=[])
     for name,table,order in [('items','cd_loan_items','line_no'),('logs','cd_loan_logs','legacy_log_id')]:
         rows=db.all('SELECT * FROM '+table+' WHERE loan_id=%s ORDER BY '+order,(loan['id'],))
-        result[name]=[{k:v for k,v in r.items() if k not in ('id','loan_id','request_key','note','actor_id','employee_id','reverses_log_id')} for r in rows]
+        result[name]=[{k:v for k,v in r.items() if k not in ('id','loan_id','request_key','note','actor_id','employee_id','reverses_log_id','count_print')} for r in rows]
     result['payments']=db.all('SELECT l.legacy_log_id,p.channel,p.direction,p.amount,p.bank_snapshot FROM cd_payments p JOIN cd_loan_logs l ON l.id=p.log_id WHERE l.loan_id=%s ORDER BY l.legacy_log_id,p.channel',(loan['id'],))
     return loan,result
 

@@ -1,0 +1,27 @@
+{% extends 'base.html' %}{% from '_parts.html' import status,pagination,empty with context %}
+{% block page_assets %}<link rel="stylesheet" href="{{ url_for('static',filename='loan-conversion.css') }}?v=20260914-exceptions"><script defer src="{{ url_for('static',filename='loan-conversion.js') }}?v=20260914-exceptions"></script><script defer src="{{ url_for('static',filename='loan-batch.js') }}?v=20260914-exceptions"></script>{% endblock %}
+{% block content %}
+<div class="notice">Phiếu của sổ cũ CHƯA chuyển sang sổ mới. Xử lý dần: nối khách KK hoặc sửa số liệu ở phiếu gốc, rồi bấm <b>Chuyển đổi</b>. <a href="{{ url_for('loans.listing') }}">Biên nhận đang vận hành →</a></div>
+<div class="page-heading"><div><div class="eyebrow">CHUYỂN ĐỔI DỮ LIỆU</div><h1>Phiếu cũ chưa chuyển</h1><p>Đã chuyển {{ da_chuyen|num }} phiếu · còn {{ dem.all|num }} phiếu ở sổ cũ, trong đó {{ dem.active|num }} phiếu đang cầm.</p></div><div class="conversion-actions">{% if auth_user.is_superuser %}<button class="btn" type="button" data-convert-batch>⇄ CHUYỂN ĐỔI HÀNG LOẠT</button>{% endif %}<a class="btn" href="{{ url_for('web.pawns') }}">Kho phiếu cũ đầy đủ →</a></div></div>
+<section class="panel">
+ <div class="list-toolbar"><form class="search-form" method="get">{{ icon('search') }}<input aria-label="Tìm phiếu cũ" name="q" value="{{ q }}" placeholder="Mã phiếu hoặc số điện thoại..."><input type="hidden" name="status" value="{{ state }}"><button class="btn btn-small">Tìm kiếm</button></form><span class="muted">{{ total|num }} phiếu</span></div>
+ <div class="tabs">{% for value,label in [('active','Đang cầm'),('closed','Đã đóng'),('unlinked','Chưa nối khách KK'),('all','Tất cả')] %}<a class="{{ 'selected' if state==value }}" href="{{ url_for('web.pawn_legacy',status=value,q=q) }}">{{ label }} ({{ dem[value]|num }})</a>{% endfor %}</div>
+ {% if rows %}
+ <div class="table-wrap"><table>
+  <thead><tr><th>Mã phiếu / Ngày cầm</th><th>Khách</th><th>Tài sản</th><th class="right">Tiền cầm</th><th>Hẹn chuộc</th><th>Trạng thái</th><th>Vướng gì</th><th></th></tr></thead>
+  <tbody>{% for p in rows %}<tr>
+   <td><a class="code" href="{{ url_for('web.pawn_detail',pid=p.id) }}">{{ p.sku }}</a><small>{{ p.date1|datevn }}</small></td>
+   <td>{% if p.pmv_cust_id %}<strong>KK {{ p.pmv_cust_id }}</strong>{% else %}<strong class="muted">Chưa nối khách</strong>{% endif %}<small>{{ p.phone }}</small></td>
+   <td><span class="asset-name">{{ p.mota1 or p.gold_name or 'Vàng / trang sức' }}</span><small>{{ p.gold_name or p.gold1 }} · {{ p.wgg1 or 0 }} · {{ p.logs }} dòng lịch sử</small></td>
+   <td class="right money">{{ p.value|vnd }} đ</td>
+   <td>{{ p.date3|datevn }}</td>
+   <td>{{ status(p) }}</td>
+   <td>{% if p.ly_do %}<span class="badge warning"><i></i>{{ p.ly_do }}</span>{% else %}<span class="muted">Bấm Chuyển đổi để đối soát</span>{% endif %}</td>
+   <td>{% if auth_user.is_superuser %}<button type="button" class="btn conversion-row-btn" data-convert="{{ p.id }}" data-sku="{{ p.sku }}" aria-label="Chuyển đổi {{ p.sku }}">Chuyển đổi</button>{% endif %}<a class="row-arrow" href="{{ url_for('web.pawn_detail',pid=p.id) }}" aria-label="Mở phiếu {{ p.sku }}">{{ icon('arrow') }}</a></td>
+  </tr>{% endfor %}</tbody>
+ </table></div>
+ {% else %}{{ empty('Không còn phiếu nào chờ chuyển ở bộ lọc này.','Đổi bộ lọc hoặc tìm theo mã phiếu, số điện thoại.') }}{% endif %}
+ {{ pagination(page,pages,total,'web.pawn_legacy',{'q':q,'status':state}) }}
+</section>
+{% if auth_user.is_superuser %}{% include '_loan_conversion.html' %}{% include '_loan_batch.html' %}{% endif %}
+{% endblock %}
