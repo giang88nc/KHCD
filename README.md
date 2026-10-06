@@ -7,9 +7,11 @@
 **Dự án CẦM ĐỒ Python đặt tại `D:\PYTHON\KHCD`. Mọi phát triển, khởi động, cấu hình và sao lưu tệp dự án đều thực hiện tại đây.** Không tạo hoặc vận hành thêm bản dự án tại `Documents\ChatGPT`. Bản trước khi chuyển chỉ giữ làm bản sao lưu tại `backups\source-before-relocation-20260914`, không dùng để chạy ứng dụng.
 
 - Mã nguồn: `khcd`; Python riêng: `.venv`; cấu hình: `.env`; bản sao lưu SQL: `backups`.
-- Vận hành bằng 3 tệp ở gốc dự án, giống nếp KHJ/KHBL (16/09/2026): **`TURN_ON_KHCD.bat`** · **`TURN_OFF_KHCD.bat`** · **`RESET_KHCD.bat`** (sửa tệp `.py` thì RESET; sửa `.html/.css/.js` chỉ cần F5). Gọi qua PowerShell: `cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat`. `TURN_ON_KHCD.vbs` nay chỉ là vỏ chạy ẩn của `TURN_ON_KHCD.bat`. Logic bật/tắt vẫn nằm nguyên ở `scripts\start.ps1` / `scripts\stop.ps1` — 3 tệp `.bat` chỉ thêm: chờ dịch vụ MySQL80, kiểm tác vụ Windows có thật hay không (không có thì bật tách qua WMI để tiến trình không chết theo app gọi lệnh), và **tự đo lại sức khỏe ở CẢ cổng 8200 lẫn 8201** bằng `scripts\kiem_khcd.ps1` (tệp CHỈ ĐỌC; `-Viec chu-cong` cho biết ai đang giữ cổng). Lý do phải đo cả hai: Caddy vẫn giữ 8200 khi backend đã chết — lúc đó mọi trang trả 502 mà nhìn cổng thì tưởng vẫn tốt.
-- Từ 16/09/2026 KHCD nằm trong chuỗi khởi động toàn hệ: `D:\PYTHON\KHJ\KHOI_DONG_TOAN_HE_THONG.bat` bước `[G]` gọi `TURN_ON_KHCD.bat`, `RESET_TOAN_HE_THONG.bat` bước `[2b]` gọi `TURN_OFF_KHCD.bat`, và bảng kiểm sức khỏe có thêm 3 mục cổng 8200 / 8201 / 18202. Trước đó KHCD không có đường lên nào khi khởi động lại máy (tác vụ Windows không có trigger) mà bảng kiểm vẫn báo "TOÀN HỆ THỐNG OK".
-- Tác vụ Windows `KHCD Web Host` chạy `D:\PYTHON\KHCD\scripts\host.ps1`, giữ cơ chế tự phục hồi hiện có. Caddy HTTPS 8200, Waitress nội bộ 8201; dịch vụ khách KHBL nội bộ 18202 dùng khóa cầu nối tại `instance\customer-bridge.key` của dự án này.
+- **Vận hành từ 07/10/2026 (GĐ chốt "mỗi dự án CHỈ 1 file RESET")**: cửa vào DUY NHẤT **`RESET_KHCD.bat`** ở gốc dự án. `TURN_ON_KHCD.bat` · `TURN_OFF_KHCD.bat` · `TURN_ON_KHCD.vbs` · `scripts\host.ps1` · `scripts\start.ps1` · `scripts\stop.ps1` · `scripts\install-windows-host.ps1` · `scripts\kiem_khcd.ps1` và tác vụ Windows `KHCD Web Host` **ĐÃ XÓA/GỠ** (còn trong lịch sử Git). Bấm đúp = RESET đầy đủ: kiểm điều kiện (thiếu MySQL80 / `.venv` / caddy / CA nội bộ / khóa cầu nối / venv KHBL thì **KHÔNG tắt gì**) → TẮT (giám sát trước) → kiểm tắt sạch → BẬT → kiểm OK bằng **`https://localhost:8200/health` thật** (phải `app: KHCD` + `customer_service: ok` — Caddy vẫn giữ 8200 khi backend chết, chỉ nhìn cổng là báo dối). Tham số: `/reset` (không dừng chờ — `cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat /reset` từ PowerShell) · `/bat` chỉ bật cái thiếu · `/tat` tắt hẳn · `/kiem` chỉ xem (chạy được ở quyền thường). Sửa `.py` thì RESET; sửa `.html/.css/.js` chỉ cần F5.
+- Động cơ: `ops\vanhanh\vanhanh.ps1` (**bản sao giống hệt** `D:\PYTHON\KHJ\ops\vanhanh\vanhanh.ps1` — sửa ở KHJ rồi chép sang KHBL + KHCD) + `ops\vanhanh\cauhinh_khcd.ps1` (3 thành phần: cầu nối 18202 → Waitress 8201 → Caddy 8200). Log `instance\vanhanh_khcd.log`. **Vòng giám sát** (cổng khóa `127.0.0.1:8219`, 60s/lần bật lại thành phần chết) thay cho `host.ps1` 15s cũ. Quyền thường bấm RESET không hỏi UAC: bat kích tác vụ chạy-theo-lệnh `KimHanh2-VanHanh-KHCD` (S4U mức Admin, không lịch — đăng ký bởi `D:\PYTHON\KHJ\CAU_HINH_TU_HOI_PHUC.bat`); tiến trình ở phiên nền, **không chết theo app/cửa sổ gọi**.
+- Cầu nối khách hàng 18202 chạy bằng venv KHBL nhưng **thuộc KHCD**: chỉ `RESET_KHCD` bật/tắt nó — `RESET_KHBL` không đụng tới (đã kiểm 07/10). Ứng dụng khác giữ cổng 8200/8201/18202 → RESET báo LỖI kèm PID, **không giết**.
+- Bật cùng Windows: tác vụ `KimHanh2-ToanHeThong-Boot` → `D:\PYTHON\KHJ\KHOI_DONG_TOAN_HE_THONG.bat` bước `[G]` → `RESET_KHCD.bat /bat`; `RESET_TOAN_HE_THONG.bat` gọi `RESET_KHCD.bat /tat`. Bảng kiểm toàn hệ có cổng 8200 / 8201 / 18202 / khóa giám sát 8219 + `/health`.
+- Caddy HTTPS 8200, Waitress nội bộ 8201; dịch vụ khách KHBL nội bộ 18202 dùng khóa cầu nối tại `instance\customer-bridge.key` của dự án này.
 - Chứng chỉ và khóa HTTPS giữ nguyên trong `instance\caddy-data`; log Caddy cũng nằm trong `instance` tại ổ D.
 - **Kho ảnh phiếu: `D:\PYTHON\KHCD\media\pawn`**, cấu hình `LEGACY_PAWN_IMAGE_ROOT`. Giải nén ảnh backup trực tiếp vào đây, giữ tên tệp, tránh lồng `pawn\pawn`. Đã chép 74 tệp đang có từ kho PHP cũ để bảo toàn ảnh; backup đầy đủ của người dùng cần bổ sung vào kho mới này. Ảnh BLOB tiếp tục nằm trong MySQL như trước. Không xóa kho PHP dùng chung với hệ thống cũ.
 - MySQL trên MrGiang và MSSQL trên KK giữ nguyên vị trí/dữ liệu. Di chuyển thư mục dự án không chuyển hoặc nhân bản các CSDL đang hoạt động.
@@ -98,42 +100,25 @@ Trước đưa UPSERT vào vận hành đã chạy backup PMV COPY_ONLY và VERI
 
 ## Chạy ứng dụng
 
-Máy hiện tại đã có môi trường `.venv` và cấu hình `.env`. Nhấp đúp `TURN_ON_KHCD.vbs` để chạy ẩn, hoặc gọi 3 tệp vận hành (đường dùng hằng ngày — chúng gọi lại chính `start.ps1`/`stop.ps1` bên dưới):
+Máy hiện tại đã có môi trường `.venv` và cấu hình `.env`. Một cửa vào duy nhất `RESET_KHCD.bat` (bấm đúp = RESET đầy đủ, có dừng chờ ở cuối). Từ PowerShell:
 
 ```powershell
-cmd /c D:\PYTHON\KHCD\TURN_ON_KHCD.bat
+cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat /reset
 ```
 
-Tắt riêng ứng dụng này (đặt cờ `instance\host.stop` + kết thúc tác vụ trước, rồi mới tắt tiến trình, cuối cùng đo lại 3 cổng và nói rõ **ai** còn giữ cổng):
+Chỉ bật cái đang thiếu / tắt hẳn để bảo trì / chỉ xem ai đang giữ cổng và đo `/health` (không đụng gì):
 
 ```powershell
-cmd /c D:\PYTHON\KHCD\TURN_OFF_KHCD.bat
+cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat /bat
+cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat /tat
+cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat /kiem
 ```
 
-Bật lại sau khi sửa tệp `.py` — kiểm đủ điều kiện **trước** khi tắt, và tắt không sạch thì **không** bật lại (tiến trình cũ còn giữ cổng 8201 sẽ khiến `start.ps1` bỏ qua, mã `.py` cũ chạy tiếp mà không ai báo lỗi):
-
-```powershell
-cmd /c D:\PYTHON\KHCD\RESET_KHCD.bat
-```
-
-Xem ai đang giữ cổng / đo sức khỏe mà không đụng gì (chỉ đọc):
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\kiem_khcd.ps1 -Viec chu-cong
-```
-
-Hai script gốc vẫn dùng trực tiếp được khi cần xử lý sự cố:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\start.ps1
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\stop.ps1
-```
+RESET kiểm đủ điều kiện **trước** khi tắt; tắt không sạch thì báo rõ còn tiến trình cũ (mã `.py` CŨ có thể đang chạy) thay vì im lặng.
 
 Đăng nhập web bằng **tài khoản và mật khẩu hiện tại của KHBL** (`admin`, `kimhanh2`, `ketoan` ở lần đồng bộ ngày 13/09/2026). `khj_admin` chỉ còn là tài khoản kết nối MySQL; mật khẩu web riêng trong phiên bản đầu đã ngừng sử dụng. Cấu hình, mật khẩu, bản sao lưu và dữ liệu riêng đều bị loại khỏi Git.
 
-Waitress chỉ lắng nghe `127.0.0.1:8201`; Caddy phục vụ HTTPS cổng 8200 và chuyển tiếp vào Waitress. Script khởi động/tắt quản lý riêng hai tiến trình KHCD. Máy hiện tại dùng tác vụ Windows **KHCD Web Host** để giữ ứng dụng độc lập với phiên công cụ/terminal khởi chạy. Tác vụ chạy ẩn bằng tài khoản Windows hiện tại với quyền thường; kiểm tra HTTPS mỗi 15 giây và khởi chạy lại tiến trình bị dừng. Nhật ký phục hồi ở `instance/host.log`. `stop.ps1` dừng cả tác vụ lẫn ứng dụng để không tự bật lại sau thao tác tắt chủ động. Cookie đăng nhập bắt buộc Secure; phiên 8 giờ, CSRF cho mọi thao tác POST, giới hạn thử mật khẩu, tự động escape HTML và chặn nhúng từ website khác; riêng popup khách được nhúng cùng origin. Không bật debug. Chưa cấu hình tự chạy khi khởi động Windows; tác vụ chỉ chạy khi gọi script bật ứng dụng, cần phiên Windows đã đăng nhập.
-
-Cài lại tác vụ trên máy chủ nếu cần: `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install-windows-host.ps1` (Windows yêu cầu quyền quản trị khi đăng ký). Sau đó dùng script bật/tắt bình thường. Tham số `start.ps1 -Direct` dành cho tác vụ nội bộ hoặc xử lý sự cố.
+Waitress chỉ lắng nghe `127.0.0.1:8201`; Caddy phục vụ HTTPS cổng 8200 và chuyển tiếp vào Waitress. RESET_KHCD chỉ quản lý 3 tiến trình của KHCD (18202 · 8201 · 8200) + vòng giám sát của nó; tiến trình chạy ở phiên nền, độc lập với phiên công cụ/terminal khởi chạy. Nhật ký vận hành ở `instance/vanhanh_khcd.log`. `RESET_KHCD /tat` tắt cả giám sát nên không tự bật lại sau thao tác tắt chủ động (tới lần bật/reset/khởi động máy sau). Cookie đăng nhập bắt buộc Secure; phiên 8 giờ, CSRF cho mọi thao tác POST, giới hạn thử mật khẩu, tự động escape HTML và chặn nhúng từ website khác; riêng popup khách được nhúng cùng origin. Không bật debug. Tự chạy khi khởi động Windows qua chuỗi khởi động toàn hệ của KHJ (chạy cả khi chưa ai đăng nhập).
 
 ## Giao diện và HTTPS trong LAN
 
@@ -290,7 +275,7 @@ Kiểm chứng bản ngoại lệ: **141 kiểm thử đạt** trên CSDL thử 
 
 Nhận QR CCCD tại ô tìm khách: chuỗi phân cách `|` có số CCCD 12 chữ số ở trường đầu và ngày cấp 8 chữ số ở trường cuối được rút về số CCCD trước khi tìm. Không dùng các chữ số trong tên/địa chỉ bị lỗi font, không tự chọn/gộp/sửa hồ sơ; phần giải mã đầy đủ tên/ảnh vẫn dùng popup chuẩn KHBL. Máy chủ kiểm lại bằng `customer_lookup.lookup_key`; chuỗi chưa đủ/sai định dạng báo lỗi, không tìm bằng toàn bộ RAW. Gõ/quét trong ô tìm khách chưa làm bản nháp thay đổi; chọn khách hoặc nhập dữ liệu phiếu vẫn bảo vệ nháp như trước.
 
-Khắc phục tải giao diện cũ: bật `TEMPLATES_AUTO_RELOAD` khi chạy Waitress; đổi phiên bản tài nguyên cho form mới. Dùng `scripts/start.ps1 -Direct -RestartBackend` khi cập nhật Python để dừng đúng backend, chờ tiến trình cũ thoát rồi khởi động lại. Nếu tab vẫn giữ trang cũ vì đang bảo vệ bản nháp, không tự bỏ dữ liệu đang nhập; lưu/giữ hoặc xác nhận bỏ nháp theo trạng thái thực tế. Phiên đăng nhập hết hạn cần đăng nhập lại. Đã kiểm 46 ca liên quan và chuỗi QR mẫu rút đúng số CCCD.
+Khắc phục tải giao diện cũ: bật `TEMPLATES_AUTO_RELOAD` khi chạy Waitress; đổi phiên bản tài nguyên cho form mới. Dùng `RESET_KHCD.bat /reset` khi cập nhật Python (thay cho `scripts/start.ps1 -Direct -RestartBackend` cũ, đã xóa 07/10/2026). Nếu tab vẫn giữ trang cũ vì đang bảo vệ bản nháp, không tự bỏ dữ liệu đang nhập; lưu/giữ hoặc xác nhận bỏ nháp theo trạng thái thực tế. Phiên đăng nhập hết hạn cần đăng nhập lại. Đã kiểm 46 ca liên quan và chuỗi QR mẫu rút đúng số CCCD.
 
 Cập nhật tủ/ô khách 15/09/2026: chọn `safe=1` → Tủ 18k (mặc định), `2` → Tủ 24k, `3` → Tủ đồ lớn. Khi mở phiếu cũ, mã ngoài danh sách vẫn hiển thị riêng, không tự đổi thành tủ khác. Cụm nút nằm trên ô tìm khách: chưa chọn hiện `+`; đã chọn hiện `X` trước `SỬA`. Sửa truyền đúng CustID vào popup KHBL dùng chung; bỏ chọn xóa CustID của nút sửa và trả về nút thêm. Giữ cơ chế khóa phiếu đã lưu/chỉ đọc. Đã kiểm 35 ca liên quan, giao diện desktop/mobile và đường dẫn popup thêm/sửa bằng hồ sơ giả.
 
@@ -552,3 +537,38 @@ GĐ chốt: *"tìm → chọn → lưu máy in vào cấu hình để sử dụn
 - Mẫu 635511 hiện **DISABLE** trên Zalo OA và bộ gửi KHBL chưa chạy thật ⇒ tin nằm chờ tới khi KHBL bật; KHBL tự quản chi phí. Bộ kiểm `tests/test_sms.py` (6 bài, CSDL nháp chép DDL 2 bảng zalo từ khj_bl).
 - **Quy tắc nhắc trong SQL — `cd_sms_rules` (18/09/2026 tối)**: 4 mức cố định theo `level_no` 1–4 (chỉ bật/tắt, không xóa): số ngày, tên mức, câu `notes` (≤200 ký tự, không link, biến con `{lan}` `{days}` `{ngay_thanh_ly}` `{so_ngay_con_lai}`); `cd_sms_settings`: hạn chót chờ thanh lý, khung giờ gửi, giờ mặc định, xưng hô mặc định; `cd_sms_rules_history` lưu mọi lần sửa (ai, lúc nào, cũ → mới). Ràng buộc: ngày tăng dần theo lần, hạn chót > lần cuối, giờ mặc định nằm trong khung. Sửa ở nút **⚙ Quy tắc nhắc** trên trang — chỉ tài khoản quản trị lưu được, mọi tài khoản xem được. Không có ngày hiệu lực: tin đã lên lịch giữ bản chụp biến trong `cd_sms_log`, quy tắc mới áp dụng từ lượt lên lịch kế. Giá trị gieo lần đầu = `sms.MUC` / `sms.CAI_DAT_MAC_DINH`.
 - **Biến tin**: `days` = d = hôm nay − ngày giao dịch gần nhất (GĐ chốt: đó là "số ngày quá hạn"), `promise_date` = CHÍNH ngày giao dịch gần nhất để câu "quá hạn kể từ ngày X – số ngày: d" khớp nhau. **`anh_chi` suy từ `customer_name`** (danh sách từ ở `cd_sms_settings`, sửa trong ⚙ Quy tắc nhắc): (1) tiền tố đầu tên Chị/Cô/Bà/Dì → Chị · Anh/Chú/Cậu/Bác/Ông → Anh; (2) chữ lót — chỉ tên ≥ 3 từ, chỉ từ ở giữa, đúng dấu: Thị/Mỹ → Chị · Văn/Tấn → Anh; (3) `I_CUSTOMER.Gender` chỉ tin **True → Anh**; **False không đủ tin** (phần lớn là mặc định lúc nhập: đo 18/09 có 81/90 khách tên "Anh …" mang Gender=Nữ) ⇒ tên chưa xác nhận nữ thì coi như chưa rõ; (4) còn lại → xưng hô mặc định "Anh/Chị". Cầu nối KHBL `customer_bridge.FIELDS` có `Gender`; dòng chưa rõ hiện dấu ⚥?. **`customer_name` tự bỏ tiền tố xưng hô ở đầu** (`ten_khong_tien_to`: "Chị Quỳnh" → "Quỳnh", "Chú Tư Hùng" → "Tư Hùng"). `pawn_code` trong nội dung gửi được che `KH******18242` (`che_ma`); cột nội bộ giữ trọn mã.
+
+
+## Liên hệ theo phiếu dùng chung — 21/09/2026
+
+Bảng `khj_bl.document_contacts`: khóa duy nhất `(source_type, source_id)`; thêm `document_code`, `cust_id`, `customer_name`, `phone`, `created_at`, `updated_at`, `updated_by`.
+
+| source_type | source_id | document_code |
+|---|---|---|
+| KHBL_BUYSELL | TRN_RT_BUYSELL.TrnID | BillCode |
+| KHBL_BUYGOLD | TRN_RT_BUYGOLD.TrnID (từng dòng nhóm thâu) | BillCode |
+| KHBL_DEPOSIT | TRN_DATCOC.TrnID: TDC260900000045 | 26-09-21-000007 |
+| KHCD_LOAN | cd_loans.id | cd_loans.sku |
+
+- SĐT trên phiếu được chọn/nhập riêng; không sửa I_CUSTOMER, không tạo khách trùng CCCD. Dùng cùng snapshot cho bản in web và SMS. Đổi hồ sơ khách không đổi SĐT phiếu đã lưu.
+- Một phiếu cọc được áp dụng: mặc định kế thừa số trên phiếu cọc nếu chưa nhập riêng. Nhiều cọc không tự chọn số bất kỳ; số hóa đơn độc lập sau khi chốt.
+- Phiếu cũ chưa có snapshot: KHCD dùng cd_loans.phone; KHBL dùng Phone nguồn hiện có. Không backfill từ hồ sơ hiện tại rồi coi là số lịch sử. Tin đã xếp hàng/gửi trước nâng cấp giữ nguyên.
+- KHCD: ghi snapshot và cd_loans.phone cùng transaction MySQL. Xóa cầm mới hợp lệ xóa liên hệ cùng transaction; xóa phiên sau không xóa liên hệ phiếu.
+- KHBL: `document_contact_writes` giữ yêu cầu bền trước lệnh MSSQL, token duy nhất, ID do PMV trả về và pending/done. Chỉ hoàn tất snapshot sau đọc lại đúng CustID; không tự gửi lại giao dịch khi mất phản hồi. Pending đã có ID chặn in/SMS tới khi đối soát.
+- Không dùng snapshot KK cho MSSQL sandbox. Test KHCD phải đặt DOCUMENT_CONTACT_DB về database test.
+- Phạm vi: quầy bán/thâu KHBL, đặt cọc web, KHCD. PMV desktop và hệ ngoài cần tích hợp riêng để đọc SĐT phiếu.
+
+Migration KHBL: `venv/Scripts/python.exe manage.py migrate pos 0039`.
+Đối soát chỉ đọc PMV và hoàn tất snapshot MySQL, không ghi tiền/trạng thái MSSQL:
+```
+venv/Scripts/python.exe manage.py reconcile_document_contacts
+venv/Scripts/python.exe manage.py reconcile_document_contacts --apply TOKEN
+```
+Chưa nhận ID: đối soát thủ công, không tự ghép SĐT/BillCode. Không ghi đè snapshot bằng yêu cầu cũ hơn.
+
+### Gợi ý khách theo từng SĐT — 21/09/2026
+
+Các ô chọn khách trên quầy bán/thâu, đặt cọc và lập phiếu cầm đồ hiển thị mỗi SĐT một dòng, giữ nguyên CustID. Ưu tiên số khớp chính xác, rồi chứa chuỗi tìm, sau đó các số còn lại cùng khách. Chọn dòng ghi số đó vào SĐT trên phiếu; không đổi I_CUSTOMER. Số trùng trong cùng hồ sơ chỉ hiển thị một lần. QR CCCD có nhiều SĐT cần chọn dòng, không tự chọn số chính.
+
+### Thêm SĐT vào hồ sơ trùng CCCD — 21/09/2026
+Popup thêm khách báo trùng SĐT/CCCD kèm tên, CCCD và mã khách. Với CCCD có sẵn và SĐT mới, nút Thêm số điện thoại cho khách này nạp đúng CustID và toàn bộ hồ sơ, giữ Phone chính, điền SĐT 2 hoặc 3 còn trống. Người dùng kiểm tra rồi Lưu bằng UPDATE chuẩn. Đủ ba số hoặc số mới thuộc người khác: từ chối. Guard có chữ ký và kiểm tra trong khóa bảo vệ các số cũ; không gộp khách hay sửa liên hệ của phiếu cũ. Dùng cùng popup/service cho KHBL và KHCD.
